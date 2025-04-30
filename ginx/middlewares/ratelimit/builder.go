@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/Kirby980/study/week_2/pkg/ratelimit"
+	"github.com/Kirby980/study/webook/pkg/ratelimit"
 	"github.com/gin-gonic/gin"
 )
 
