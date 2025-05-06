@@ -29,7 +29,7 @@ func WrapBody[Req any](fn func(ctx *gin.Context, req Req) (Result, error)) gin.H
 
 func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, uc C) (Result, error)) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		val, ok := ctx.Get("claims")
+		val, ok := ctx.Get("users")
 		if !ok {
 			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
@@ -55,7 +55,7 @@ func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, 
 }
 func WrapToken[C jwt.Claims](fn func(ctx *gin.Context, uc C) (Result, error)) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		val, ok := ctx.Get("claims")
+		val, ok := ctx.Get("users")
 		if !ok {
 			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
