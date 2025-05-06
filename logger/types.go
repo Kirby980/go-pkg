@@ -12,6 +12,7 @@ type LoggerV1 interface {
 	Info(msg string, fields ...Field)
 	Warn(msg string, fields ...Field)
 	Error(msg string, fields ...Field)
+	With(args ...Field) LoggerV1
 }
 type Field struct {
 	Key   string

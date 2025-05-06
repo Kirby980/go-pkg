@@ -7,12 +7,19 @@ import (
 // 适配器模式
 // ZapLogger 是一个实现了 Logger 接口的结构体
 type ZapLogger struct {
-	l zap.Logger
+	l *zap.Logger
 }
 
-func NewZapLogger(l *zap.Logger) *ZapLogger {
+// With implements LoggerV1.
+func (z *ZapLogger) With(args ...Field) LoggerV1 {
 	return &ZapLogger{
-		l: *l,
+		l: z.l.With(z.toZapFields(args)...),
+	}
+}
+
+func NewZapLogger(l *zap.Logger) LoggerV1 {
+	return &ZapLogger{
+		l: l,
 	}
 }
 
