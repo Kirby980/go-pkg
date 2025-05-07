@@ -27,9 +27,9 @@ func WrapBody[Req any](fn func(ctx *gin.Context, req Req) (Result, error)) gin.H
 	}
 }
 
-func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, uc C) (Result, error)) gin.HandlerFunc {
+func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, uc C) (Result, error), claims string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		val, ok := ctx.Get("users")
+		val, ok := ctx.Get(claims)
 		if !ok {
 			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
@@ -40,7 +40,7 @@ func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, 
 			return
 		}
 		var req Req
-		if err := ctx.Bind(req); err != nil {
+		if err := ctx.Bind(&req); err != nil {
 			return
 		}
 		res, err := fn(ctx, req, c)
@@ -53,9 +53,9 @@ func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, 
 		ctx.JSON(http.StatusOK, res)
 	}
 }
-func WrapToken[C jwt.Claims](fn func(ctx *gin.Context, uc C) (Result, error)) gin.HandlerFunc {
+func WrapToken[C jwt.Claims](fn func(ctx *gin.Context, uc C) (Result, error), claims string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
-		val, ok := ctx.Get("users")
+		val, ok := ctx.Get(claims)
 		if !ok {
 			ctx.AbortWithStatus(http.StatusUnauthorized)
 			return
