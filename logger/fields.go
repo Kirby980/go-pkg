@@ -2,7 +2,14 @@ package logger
 
 import "time"
 
-func String(key string, value any) Field {
+func String(key string, value string) Field {
+	return Field{
+		Key:   key,
+		Value: value,
+	}
+}
+
+func Int32(key string, value int32) Field {
 	return Field{
 		Key:   key,
 		Value: value,
