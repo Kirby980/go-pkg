@@ -2,13 +2,23 @@ package ginx
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/Kirby980/study/webook/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/zap"
 )
 
-var L logger.LoggerV1
+var L = logger.NewZapLogger(zap.NewExample())
+
+var vector *prometheus.CounterVec
+
+func InitConter(opt prometheus.CounterOpts) {
+	vector = prometheus.NewCounterVec(opt, []string{"code"})
+	prometheus.MustRegister(vector)
+}
 
 func WrapBody[Req any](fn func(ctx *gin.Context, req Req) (Result, error)) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
@@ -23,6 +33,7 @@ func WrapBody[Req any](fn func(ctx *gin.Context, req Req) (Result, error)) gin.H
 				logger.String("route", ctx.FullPath()),
 				logger.Error(err))
 		}
+		vector.WithLabelValues(strconv.Itoa(res.Code)).Inc()
 		ctx.JSON(http.StatusOK, res)
 	}
 }
@@ -50,6 +61,7 @@ func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, 
 				logger.String("route", ctx.FullPath()),
 				logger.Error(err))
 		}
+		vector.WithLabelValues(strconv.Itoa(res.Code)).Inc()
 		ctx.JSON(http.StatusOK, res)
 	}
 }
@@ -74,6 +86,8 @@ func WrapToken[C jwt.Claims](fn func(ctx *gin.Context, uc C) (Result, error), cl
 				logger.String("route", ctx.FullPath()),
 				logger.Error(err))
 		}
+
+		vector.WithLabelValues(strconv.Itoa(res.Code)).Inc()
 		ctx.JSON(http.StatusOK, res)
 	}
 }
