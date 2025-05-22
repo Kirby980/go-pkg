@@ -4,10 +4,16 @@ import (
 	"context"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
+)
+
+var (
+	once   sync.Once
+	vector *prometheus.SummaryVec
 )
 
 type PrometheusHook struct {
@@ -15,8 +21,11 @@ type PrometheusHook struct {
 }
 
 func NewPrometheusHook(opt prometheus.SummaryOpts, lables ...string) *PrometheusHook {
-	vector := prometheus.NewSummaryVec(opt, lables)
-	prometheus.MustRegister(vector)
+	once.Do(func() {
+		vector = prometheus.NewSummaryVec(opt, lables)
+		prometheus.MustRegister(vector)
+	})
+
 	return &PrometheusHook{
 		vector: vector,
 	}
