@@ -9,20 +9,16 @@ import (
 )
 
 type MiddlewareBuilder struct {
-	Namespace  string
-	Subsystem  string
-	Name       string
-	Help       string
-	InstanceID string
+	summaryOpt prometheus.SummaryOpts
+	gaugeOpt   prometheus.GaugeOpts
+	labels     []string
 }
 
-func NewMiddlewareBuilder(namespace, subsystem, name, help, instanceID string) *MiddlewareBuilder {
+func NewMiddlewareBuilder(summaryOpt prometheus.SummaryOpts, gaugeOpt prometheus.GaugeOpts, lables ...string) *MiddlewareBuilder {
 	return &MiddlewareBuilder{
-		Namespace:  namespace,
-		Subsystem:  subsystem,
-		Name:       name,
-		Help:       help,
-		InstanceID: instanceID,
+		summaryOpt: summaryOpt,
+		gaugeOpt:   gaugeOpt,
+		labels:     lables,
 	}
 }
 
@@ -30,32 +26,9 @@ func (m *MiddlewareBuilder) Build() gin.HandlerFunc {
 	// pattern 是指你命中的路由
 	// 是指你的 HTTP 的 status
 	// path /detail/1
-	labels := []string{"method", "pattern", "status"}
-	summary := prometheus.NewSummaryVec(prometheus.SummaryOpts{
-		Namespace: m.Namespace,
-		Subsystem: m.Subsystem,
-		Name:      m.Name + "_resp_time",
-		Help:      m.Help,
-		ConstLabels: map[string]string{
-			"instance_id": m.InstanceID,
-		},
-		Objectives: map[float64]float64{
-			0.5:   0.01,
-			0.9:   0.01,
-			0.99:  0.005,
-			0.999: 0.0001,
-		},
-	}, labels)
+	summary := prometheus.NewSummaryVec(m.summaryOpt, m.labels)
 	prometheus.MustRegister(summary)
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Namespace: m.Namespace,
-		Subsystem: m.Subsystem,
-		Name:      m.Name + "_active_req",
-		Help:      m.Help,
-		ConstLabels: map[string]string{
-			"instance_id": m.InstanceID,
-		},
-	})
+	gauge := prometheus.NewGauge(m.gaugeOpt)
 	prometheus.MustRegister(gauge)
 	return func(ctx *gin.Context) {
 		start := time.Now()

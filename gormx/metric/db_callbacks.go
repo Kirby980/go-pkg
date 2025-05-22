@@ -11,14 +11,8 @@ type Callbacks struct {
 	vector *prometheus.SummaryVec
 }
 
-func NewCallbacks(namespace, subsystem, name, help string, objectives map[float64]float64, opt ...string) *Callbacks {
-	vector := prometheus.NewSummaryVec(prometheus.SummaryOpts{
-		Namespace:  namespace,
-		Subsystem:  subsystem,
-		Name:       name,
-		Help:       help,
-		Objectives: objectives,
-	}, opt)
+func NewCallbacks(opt prometheus.SummaryOpts, labelNames ...string) *Callbacks {
+	vector := prometheus.NewSummaryVec(opt, labelNames)
 	pcb := &Callbacks{
 		vector: vector,
 	}

@@ -15,8 +15,8 @@ var L = logger.NewZapLogger(zap.NewExample())
 
 var vector *prometheus.CounterVec
 
-func InitConter(opt prometheus.CounterOpts) {
-	vector = prometheus.NewCounterVec(opt, []string{"code"})
+func InitConter(opt prometheus.CounterOpts, lables ...string) {
+	vector = prometheus.NewCounterVec(opt, lables)
 	prometheus.MustRegister(vector)
 }
 
