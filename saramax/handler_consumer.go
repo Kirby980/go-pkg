@@ -49,9 +49,9 @@ func (h Handler[T]) ConsumeClaim(session sarama.ConsumerGroupSession, claim sara
 		if err != nil {
 			h.l.Error("处理失败--重试超上限", logger.Error(err), logger.String("topic", msg.Topic),
 				logger.Int64("offset", msg.Offset), logger.Int32("partition", msg.Partition))
-		} else {
-			session.MarkMessage(msg, "")
 		}
+		session.MarkMessage(msg, "")
+
 	}
 	return nil
 }
