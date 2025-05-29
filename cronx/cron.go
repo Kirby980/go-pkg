@@ -1,4 +1,4 @@
-package pkg
+package cronx
 
 import (
 	"github.com/robfig/cron/v3"
