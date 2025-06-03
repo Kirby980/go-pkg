@@ -17,14 +17,14 @@ var (
 )
 
 type PickBatchProConsumer[T any] struct {
-	l      logger.LoggerV1
+	l      logger.Logger
 	fn     func(msg *sarama.ConsumerMessage, t T) error
 	vector *prometheus.SummaryVec
 }
 
 // 创建一个新的PickBatchProConsumer实例，T为任意类型
 // 该函数接收一个日志记录器、一个处理函数和Prometheus的SummaryOpts选项以及可选的标签
-func NewPickBatchProConsumer[T any](l logger.LoggerV1, fn func(msg *sarama.ConsumerMessage, t T) error,
+func NewPickBatchProConsumer[T any](l logger.Logger, fn func(msg *sarama.ConsumerMessage, t T) error,
 	opt prometheus.SummaryOpts, labels ...string) PickBatchProConsumer[T] {
 	once.Do(func() {
 		vector = prometheus.NewSummaryVec(opt, labels)

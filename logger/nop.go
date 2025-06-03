@@ -3,7 +3,7 @@ package logger
 type NopLogger struct{}
 
 // With implements LoggerV1.
-func (n *NopLogger) With(args ...Field) LoggerV1 {
+func (n *NopLogger) With(args ...Field) Logger {
 	return n
 }
 

@@ -10,14 +10,14 @@ type ZapLogger struct {
 	l *zap.Logger
 }
 
-// With implements LoggerV1.
-func (z *ZapLogger) With(args ...Field) LoggerV1 {
+// With implements Logger.
+func (z *ZapLogger) With(args ...Field) Logger {
 	return &ZapLogger{
 		l: z.l.With(z.toZapFields(args)...),
 	}
 }
 
-func NewZapLogger(l *zap.Logger) LoggerV1 {
+func NewZapLogger(l *zap.Logger) Logger {
 	return &ZapLogger{
 		l: l,
 	}

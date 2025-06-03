@@ -7,7 +7,7 @@ import (
 )
 
 type JsonEncoder struct {
-	l    logger.LoggerV1
+	l    logger.Logger
 	Data any
 }
 
@@ -28,7 +28,7 @@ func (j JsonEncoder) Length() int {
 	}
 	return len(s)
 }
-func NewJsonEncoder(l logger.LoggerV1, data any) JsonEncoder {
+func NewJsonEncoder(l logger.Logger, data any) JsonEncoder {
 	return JsonEncoder{
 		l:    l,
 		Data: data,

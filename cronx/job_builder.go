@@ -12,12 +12,12 @@ import (
 )
 
 type CronJobBuilder struct {
-	l      logger.LoggerV1
+	l      logger.Logger
 	p      *prometheus.SummaryVec
 	tracer trace.Tracer
 }
 
-func NewCronJobBuilder(l logger.LoggerV1, p prometheus.SummaryOpts, labelNames []string, tracer trace.Tracer) *CronJobBuilder {
+func NewCronJobBuilder(l logger.Logger, p prometheus.SummaryOpts, labelNames []string, tracer trace.Tracer) *CronJobBuilder {
 	ps := prometheus.NewSummaryVec(p, labelNames)
 	prometheus.MustRegister(ps)
 	return &CronJobBuilder{l: l, p: ps, tracer: tracer}

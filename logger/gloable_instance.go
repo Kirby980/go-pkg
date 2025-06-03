@@ -2,17 +2,17 @@ package logger
 
 import "sync"
 
-var l LoggerV1
+var l Logger
 
 var lMutex sync.RWMutex
 
-func SetGolableLogger(logger LoggerV1) {
+func SetGolableLogger(logger Logger) {
 	lMutex.Lock()
 	defer lMutex.Unlock()
 	l = logger
 }
 
-func L() LoggerV1 {
+func L() Logger {
 	lMutex.RLock()
 	defer lMutex.RUnlock()
 	if l == nil {
@@ -21,4 +21,4 @@ func L() LoggerV1 {
 	return l
 }
 
-var GL LoggerV1 = &NopLogger{}
+var GL Logger = &NopLogger{}

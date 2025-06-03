@@ -8,11 +8,11 @@ import (
 )
 
 type Handler[T any] struct {
-	l  logger.LoggerV1
+	l  logger.Logger
 	fn func(msg *sarama.ConsumerMessage, t T) error
 }
 
-func NewHandler[T any](l logger.LoggerV1, fn func(msg *sarama.ConsumerMessage, t T) error) Handler[T] {
+func NewHandler[T any](l logger.Logger, fn func(msg *sarama.ConsumerMessage, t T) error) Handler[T] {
 	return Handler[T]{
 		l:  l,
 		fn: fn,

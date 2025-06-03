@@ -10,13 +10,13 @@ import (
 )
 
 type BatchConsumer[T any] struct {
-	l             logger.LoggerV1
+	l             logger.Logger
 	fn            func(msg []*sarama.ConsumerMessage, t []T) error
 	batchSize     int
 	batchDuration time.Duration
 }
 
-func NewBathConsumer[T any](l logger.LoggerV1, fn func(msg []*sarama.ConsumerMessage, t []T) error) *BatchConsumer[T] {
+func NewBathConsumer[T any](l logger.Logger, fn func(msg []*sarama.ConsumerMessage, t []T) error) *BatchConsumer[T] {
 	return &BatchConsumer[T]{
 		l:             l,
 		fn:            fn,
