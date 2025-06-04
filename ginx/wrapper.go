@@ -52,6 +52,10 @@ func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, 
 		}
 		var req Req
 		if err := ctx.Bind(&req); err != nil {
+			L.Error("参数错误",
+				logger.String("path", ctx.Request.URL.Path),
+				logger.String("route", ctx.FullPath()),
+				logger.Error(err))
 			return
 		}
 		res, err := fn(ctx, req, c)
