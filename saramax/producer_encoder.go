@@ -6,6 +6,7 @@ import (
 	"github.com/Kirby980/study/webook/pkg/logger"
 )
 
+// JsonEncoder 是sarama.ProducerMessage的结构体扩展包
 type JsonEncoder struct {
 	l    logger.Logger
 	Data any

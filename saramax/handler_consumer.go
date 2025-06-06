@@ -12,6 +12,7 @@ type Handler[T any] struct {
 	fn func(msg *sarama.ConsumerMessage, t T) error
 }
 
+// NewHandler 一个基本的sarama consumer的handler
 func NewHandler[T any](l logger.Logger, fn func(msg *sarama.ConsumerMessage, t T) error) Handler[T] {
 	return Handler[T]{
 		l:  l,

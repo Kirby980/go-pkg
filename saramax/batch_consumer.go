@@ -16,6 +16,7 @@ type BatchConsumer[T any] struct {
 	batchDuration time.Duration
 }
 
+// NewBathConsumer 创建一个批量消费者
 func NewBathConsumer[T any](l logger.Logger, fn func(msg []*sarama.ConsumerMessage, t []T) error) *BatchConsumer[T] {
 	return &BatchConsumer[T]{
 		l:             l,
