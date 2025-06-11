@@ -12,7 +12,7 @@ type Server struct {
 }
 
 func (s *Server) Serve() error {
-	l, err := net.Listen("tcp", ":8090")
+	l, err := net.Listen("tcp", s.Addr)
 	if err != nil {
 		panic(err)
 	}
