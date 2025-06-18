@@ -84,6 +84,8 @@ func (s *Scheduler[T]) SrcOnly(c *gin.Context) (ginx.Result, error) {
 	}, nil
 }
 
+// SrcFirst 先读写源表
+// 先读写源表，再读写目标表
 func (s *Scheduler[T]) SrcFirst(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -94,6 +96,8 @@ func (s *Scheduler[T]) SrcFirst(c *gin.Context) (ginx.Result, error) {
 	}, nil
 }
 
+// DstFirst 先读写目标表
+// 先读写目标表，再读写源表
 func (s *Scheduler[T]) DstFirst(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -104,6 +108,7 @@ func (s *Scheduler[T]) DstFirst(c *gin.Context) (ginx.Result, error) {
 	}, nil
 }
 
+// DstOnly 只读写目标表
 func (s *Scheduler[T]) DstOnly(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -123,6 +128,7 @@ func (s *Scheduler[T]) StopIncrementValidation(c *gin.Context) (ginx.Result, err
 	}, nil
 }
 
+// StartIncrementValidation 启动增量校验
 func (s *Scheduler[T]) StartIncrementValidation(c *gin.Context,
 	req StartIncrRequest) (ginx.Result, error) {
 	// 开启增量校验
@@ -152,6 +158,7 @@ func (s *Scheduler[T]) StartIncrementValidation(c *gin.Context,
 	}, nil
 }
 
+// StopFullValidation 停止全量校验
 func (s *Scheduler[T]) StopFullValidation(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -188,6 +195,7 @@ func (s *Scheduler[T]) StartFullValidation(c *gin.Context) (ginx.Result, error) 
 	}, nil
 }
 
+// newValidator 创建一个 validator
 func (s *Scheduler[T]) newValidator() (*validator.Validator[T], error) {
 	switch s.pattern {
 	case connpool.PatternSrcOnly, connpool.PatternSrcFirst:
@@ -199,6 +207,7 @@ func (s *Scheduler[T]) newValidator() (*validator.Validator[T], error) {
 	}
 }
 
+// StartIncrRequest 启动增量校验的请求
 type StartIncrRequest struct {
 	Utime int64 `json:"utime"`
 	// 毫秒数

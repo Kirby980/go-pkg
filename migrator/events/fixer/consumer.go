@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// Consumer 消费者
 type Consumer[T migrator.Entity] struct {
 	client   sarama.Client
 	l        logger.Logger
@@ -22,6 +23,7 @@ type Consumer[T migrator.Entity] struct {
 	topic    string
 }
 
+// NewConsumer 创建一个消费者
 func NewConsumer[T migrator.Entity](
 	client sarama.Client,
 	l logger.Logger,
@@ -63,6 +65,7 @@ func (r *Consumer[T]) Start() error {
 	return err
 }
 
+// Consume 消费消息
 func (r *Consumer[T]) Consume(msg *sarama.ConsumerMessage, t events.InconsistentEvent) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
