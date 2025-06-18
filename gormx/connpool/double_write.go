@@ -10,22 +10,22 @@ import (
 )
 
 const (
-	patternDstOnly  = "DST_ONLY"
-	patternSrcOnly  = "SRC_ONLY"
-	patternDstFirst = "DST_FIRST"
-	patternSrcFirst = "SRC_FIRST"
+	PatternDstOnly  = "DST_ONLY"
+	PatternSrcOnly  = "SRC_ONLY"
+	PatternDstFirst = "DST_FIRST"
+	PatternSrcFirst = "SRC_FIRST"
 )
 
-// DoubleWrite 双写模式
-type DoubleWrite struct {
+// DoubleWritePool 双写模式
+type DoubleWritePool struct {
 	src     gorm.ConnPool
 	dst     gorm.ConnPool
 	pattern atomic.Value
 }
 
-// NewDoubleWrite 创建一个新的双写模式
-func NewDoubleWrite(src, dst gorm.ConnPool, pattern string) *DoubleWrite {
-	dw := &DoubleWrite{
+// NewDoubleWritePool 创建一个新的双写模式
+func NewDoubleWritePool(src, dst gorm.ConnPool, pattern string) *DoubleWritePool {
+	dw := &DoubleWritePool{
 		src: src,
 		dst: dst,
 	}
@@ -34,28 +34,28 @@ func NewDoubleWrite(src, dst gorm.ConnPool, pattern string) *DoubleWrite {
 }
 
 // UpdatePattern 更新双写模式
-func (d *DoubleWrite) UpdatePattern(pattern string) {
+func (d *DoubleWritePool) UpdatePattern(pattern string) {
 	d.pattern.Store(pattern)
 }
 
 // BeginTx gorm的事务接口
-func (d *DoubleWrite) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
+func (d *DoubleWritePool) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.ConnPool, error) {
 	pattern := d.pattern.Load().(string)
 	switch pattern {
-	case patternSrcOnly:
+	case PatternSrcOnly:
 		tx, err := d.src.(gorm.TxBeginner).BeginTx(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
-		return &DoubleWriteTx{
+		return &DoubleWritePoolTx{
 			src:     tx,
 			pattern: pattern,
-			DoubleWrite: DoubleWrite{
+			DoubleWritePool: DoubleWritePool{
 				src:     d.src,
 				pattern: d.pattern,
 			},
 		}, nil
-	case patternSrcFirst:
+	case PatternSrcFirst:
 		srcTx, err := d.src.(gorm.TxBeginner).BeginTx(ctx, opts)
 		if err != nil {
 			return nil, err
@@ -64,30 +64,30 @@ func (d *DoubleWrite) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.Co
 		if err != nil {
 			log.Println("双写模式下，目标表开启事务失败", err)
 		}
-		return &DoubleWriteTx{
+		return &DoubleWritePoolTx{
 			src:     srcTx,
 			dst:     dstTx,
 			pattern: pattern,
-			DoubleWrite: DoubleWrite{
+			DoubleWritePool: DoubleWritePool{
 				src:     d.src,
 				dst:     d.dst,
 				pattern: d.pattern,
 			},
 		}, nil
-	case patternDstOnly:
+	case PatternDstOnly:
 		tx, err := d.dst.(gorm.TxBeginner).BeginTx(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
-		return &DoubleWriteTx{
+		return &DoubleWritePoolTx{
 			dst:     tx,
 			pattern: pattern,
-			DoubleWrite: DoubleWrite{
+			DoubleWritePool: DoubleWritePool{
 				dst:     d.dst,
 				pattern: d.pattern,
 			},
 		}, nil
-	case patternDstFirst:
+	case PatternDstFirst:
 		dstTx, err := d.dst.(gorm.TxBeginner).BeginTx(ctx, opts)
 		if err != nil {
 			return nil, err
@@ -96,11 +96,11 @@ func (d *DoubleWrite) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.Co
 		if err != nil {
 			log.Println("双写模式下，源表开启事务失败", err)
 		}
-		return &DoubleWriteTx{
+		return &DoubleWritePoolTx{
 			src:     srcTx,
 			dst:     dstTx,
 			pattern: pattern,
-			DoubleWrite: DoubleWrite{
+			DoubleWritePool: DoubleWritePool{
 				src:     d.src,
 				dst:     d.dst,
 				pattern: d.pattern,
@@ -112,20 +112,20 @@ func (d *DoubleWrite) BeginTx(ctx context.Context, opts *sql.TxOptions) (gorm.Co
 }
 
 // PrepareContext 预编译接口
-func (d *DoubleWrite) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
+func (d *DoubleWritePool) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
 	panic("没有这种双写模式")
 }
 
 // ExecContext gorm的增删改的查询接口
-func (d *DoubleWrite) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+func (d *DoubleWritePool) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
 	pattern, ok := d.pattern.Load().(string)
 	if !ok {
-		pattern = patternSrcOnly // 默认使用源库
+		pattern = PatternSrcOnly // 默认使用源库
 	}
 	switch pattern {
-	case patternSrcOnly:
+	case PatternSrcOnly:
 		return d.src.ExecContext(ctx, query, args...)
-	case patternSrcFirst:
+	case PatternSrcFirst:
 		res, err := d.src.ExecContext(ctx, query, args...)
 		if err != nil {
 			return res, err
@@ -135,9 +135,9 @@ func (d *DoubleWrite) ExecContext(ctx context.Context, query string, args ...int
 			log.Println("双写模式下，目标库执行失败", err)
 		}
 		return res, nil
-	case patternDstOnly:
+	case PatternDstOnly:
 		return d.dst.ExecContext(ctx, query, args...)
-	case patternDstFirst:
+	case PatternDstFirst:
 		res, err := d.dst.ExecContext(ctx, query, args...)
 		if err != nil {
 			return res, err
@@ -153,15 +153,15 @@ func (d *DoubleWrite) ExecContext(ctx context.Context, query string, args ...int
 }
 
 // QueryContext gorm的多行查询接口
-func (d *DoubleWrite) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+func (d *DoubleWritePool) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
 	pattern, ok := d.pattern.Load().(string)
 	if !ok {
-		pattern = patternSrcOnly // 默认使用源库
+		pattern = PatternSrcOnly // 默认使用源库
 	}
 	switch pattern {
-	case patternSrcOnly, patternSrcFirst:
+	case PatternSrcOnly, PatternSrcFirst:
 		return d.src.QueryContext(ctx, query, args...)
-	case patternDstOnly, patternDstFirst:
+	case PatternDstOnly, PatternDstFirst:
 		return d.dst.QueryContext(ctx, query, args...)
 	default:
 		panic("未知的双写模式")
@@ -169,35 +169,35 @@ func (d *DoubleWrite) QueryContext(ctx context.Context, query string, args ...in
 }
 
 // QueryRowContext gorm的单行查询接口
-func (d *DoubleWrite) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+func (d *DoubleWritePool) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
 	pattern, ok := d.pattern.Load().(string)
 	if !ok {
-		pattern = patternSrcOnly // 默认使用源库
+		pattern = PatternSrcOnly // 默认使用源库
 	}
 	switch pattern {
-	case patternSrcOnly, patternSrcFirst:
+	case PatternSrcOnly, PatternSrcFirst:
 		return d.src.QueryRowContext(ctx, query, args...)
-	case patternDstOnly, patternDstFirst:
+	case PatternDstOnly, PatternDstFirst:
 		return d.dst.QueryRowContext(ctx, query, args...)
 	default:
 		panic("未知的双写模式")
 	}
 }
 
-// DoubleWriteTx 双写模式的事务
-type DoubleWriteTx struct {
+// DoubleWritePoolTx 双写模式的事务
+type DoubleWritePoolTx struct {
 	src     gorm.Tx
 	dst     gorm.Tx
 	pattern string
-	DoubleWrite
+	DoubleWritePool
 }
 
 // Commit 提交事务
-func (d *DoubleWriteTx) Commit() error {
+func (d *DoubleWritePoolTx) Commit() error {
 	switch d.pattern {
-	case patternSrcOnly:
+	case PatternSrcOnly:
 		return d.src.Commit()
-	case patternSrcFirst:
+	case PatternSrcFirst:
 		err := d.src.Commit()
 		if err != nil {
 			return err
@@ -209,9 +209,9 @@ func (d *DoubleWriteTx) Commit() error {
 			}
 		}
 		return nil
-	case patternDstOnly:
+	case PatternDstOnly:
 		return d.dst.Commit()
-	case patternDstFirst:
+	case PatternDstFirst:
 		err := d.dst.Commit()
 		if err != nil {
 			return err
@@ -229,11 +229,11 @@ func (d *DoubleWriteTx) Commit() error {
 }
 
 // Rollback 回滚事务
-func (d *DoubleWriteTx) Rollback() error {
+func (d *DoubleWritePoolTx) Rollback() error {
 	switch d.pattern {
-	case patternSrcOnly:
+	case PatternSrcOnly:
 		return d.src.Rollback()
-	case patternSrcFirst:
+	case PatternSrcFirst:
 		err := d.src.Rollback()
 		if err != nil {
 			return err
@@ -245,9 +245,9 @@ func (d *DoubleWriteTx) Rollback() error {
 			}
 		}
 		return nil
-	case patternDstOnly:
+	case PatternDstOnly:
 		return d.dst.Rollback()
-	case patternDstFirst:
+	case PatternDstFirst:
 		err := d.dst.Rollback()
 		if err != nil {
 			return err

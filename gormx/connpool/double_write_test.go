@@ -16,7 +16,7 @@ func TestDoubleWrite(t *testing.T) {
 	require.NoError(t, err)
 
 	db2, err := gorm.Open(mysql.New(mysql.Config{
-		Conn: NewDoubleWrite(db.ConnPool, intr.ConnPool, patternSrcFirst),
+		Conn: NewDoubleWritePool(db.ConnPool, intr.ConnPool, PatternSrcFirst),
 	}))
 	require.NoError(t, err)
 	err = db2.Create(&Interactive{
