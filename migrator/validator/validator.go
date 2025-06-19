@@ -2,6 +2,7 @@ package validator
 
 import (
 	"context"
+	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -14,10 +15,11 @@ import (
 )
 
 type Validator[T migrator.Entity] struct {
-	base          *gorm.DB
-	target        *gorm.DB
-	l             logger.Logger
-	p             events.Producer
+	base   *gorm.DB
+	target *gorm.DB
+	l      logger.Logger
+	p      events.Producer
+	// SRC 表示 以源表为准，DST 表示 以目标表为准
 	direction     string
 	batchSize     int
 	highLoad      *atomic.Bool
@@ -34,17 +36,84 @@ func NewValidator[T migrator.Entity](
 	p events.Producer) *Validator[T] {
 	highLoad := &atomic.Bool{}
 	highLoad.Store(false)
-	go func() {
-		// 在这里，去查询数据库的状态
-		// 你的校验代码不太可能是性能瓶颈，性能瓶颈一般在数据库
-		// 你也可以结合本地的 CPU，内存负载来判定
-	}()
+
 	res := &Validator[T]{base: base, target: target,
 		l: l, p: p, direction: direction,
 		highLoad: highLoad}
 	res.fromBase = res.fullFromBase
+
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			// 检测数据库负载状态
+			isHighLoad := res.checkDatabaseLoad()
+			highLoad.Store(isHighLoad)
+
+			if isHighLoad {
+				res.l.Info("检测到数据库高负载，暂停校验")
+			} else {
+				res.l.Info("数据库负载正常，恢复校验")
+			}
+		}
+	}()
+
 	return res
 }
+
+// checkDatabaseLoad 检测数据库负载状态
+func (v *Validator[T]) checkDatabaseLoad() bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// 检测数据库连接数和活跃连接数
+	var activeConnections int64
+	var maxConnections int64
+	var err error
+	switch v.direction {
+	case "SRC":
+		// 查询当前活跃连接数
+		err = v.base.WithContext(ctx).Raw("SHOW STATUS LIKE 'Threads_connected'").Scan(&activeConnections).Error
+		if err != nil {
+			v.l.Error("查询活跃连接数失败", logger.Error(err))
+			return false
+		}
+
+		// 查询最大连接数
+		err = v.base.WithContext(ctx).Raw("SHOW VARIABLES LIKE 'max_connections'").Scan(&maxConnections).Error
+		if err != nil {
+			v.l.Error("查询最大连接数失败", logger.Error(err))
+			return false
+		}
+	case "DST":
+		// 查询当前活跃连接数
+		err = v.target.WithContext(ctx).Raw("SHOW STATUS LIKE 'Threads_connected'").Scan(&activeConnections).Error
+		if err != nil {
+			v.l.Error("查询活跃连接数失败", logger.Error(err))
+			return false
+		}
+
+		// 查询最大连接数
+		err = v.target.WithContext(ctx).Raw("SHOW VARIABLES LIKE 'max_connections'").Scan(&maxConnections).Error
+		if err != nil {
+			v.l.Error("查询最大连接数失败", logger.Error(err))
+			return false
+		}
+	}
+	// 如果活跃连接数超过最大连接数的80%，认为是高负载
+	loadRatio := float64(activeConnections) / float64(maxConnections)
+	isHighLoad := loadRatio > 0.8
+
+	v.l.Info("数据库负载检测",
+		logger.Int64("active_connections", activeConnections),
+		logger.Int64("max_connections", maxConnections),
+		logger.Float64("load_ratio", loadRatio),
+		logger.Bool("is_high_load", isHighLoad))
+
+	return isHighLoad
+}
+
 func (v *Validator[T]) SleepInterval(i time.Duration) *Validator[T] {
 	v.sleepInterval = i
 	return v
@@ -90,6 +159,9 @@ func (v *Validator[T]) validateBaseToTarget(ctx context.Context) {
 		//
 		if v.highLoad.Load() {
 			// 挂起
+			v.l.Info("数据库高负载,暂停校验,等待1分钟后重试")
+			time.Sleep(time.Minute)
+			continue
 		}
 
 		// 找到了 base 中的数据
@@ -113,37 +185,25 @@ func (v *Validator[T]) validateBaseToTarget(ctx context.Context) {
 				// 超时或者被人取消了
 				return
 			case nil:
-				// 找到了。你要开始比较
-				// 你怎么比较？
-				// 能不能这么比？
-				// 1. src == dst
-				// 这是利用反射来比
-				// 这个原则上是可以的。
-				//if reflect.DeepEqual(src, dst) {
-				//
-				//}
-				//var srcAny any = src
-				//if c1, ok := srcAny.(interface {
-				//	// 有没有自定义的比较逻辑
-				//	CompareTo(c2 migrator.Entity) bool
-				//}); ok {
-				//	// 有，我就用它的
-				//	if !c1.CompareTo(dst) {
-				//
-				//	}
-				//} else {
-				//	// 没有，我就用反射
-				//	if !reflect.DeepEqual(src, dst) {
-				//
-				//	}
-				//}
-				if !src.CompareTo(dst) {
-					// 不相等
-					// 这时候，我要干嘛？上报给 Kafka，就是告知数据不一致
-					v.notify(ctx, src.ID(),
-						events.InconsistentEventTypeNEQ)
+				// 如果有自定义的比较逻辑，就用自定义的比较逻辑
+				// 如果没有，就用反射
+				var srcAny any = src
+				if c1, ok := srcAny.(interface {
+					// 有没有自定义的比较逻辑
+					CompareTo(c2 migrator.Entity) bool
+				}); ok {
+					// 有，我就用它的
+					if !c1.CompareTo(dst) {
+						v.notify(ctx, src.ID(),
+							events.InconsistentEventTypeNEQ)
+					}
+				} else {
+					// 没有，我就用反射
+					if !reflect.DeepEqual(src, dst) {
+						v.notify(ctx, src.ID(),
+							events.InconsistentEventTypeNEQ)
+					}
 				}
-
 			case gorm.ErrRecordNotFound:
 				// 这意味着，target 里面少了数据
 				v.notify(ctx, src.ID(),
@@ -249,6 +309,11 @@ func (v *Validator[T]) validateTargetToBase(ctx context.Context) {
 	// 先找 target，再找 base，找出 base 中已经被删除的
 	// 理论上来说，就是 target 里面一条条找
 	offset := 0
+	if v.highLoad.Load() {
+		v.l.Info("数据库高负载,暂停校验,等待1分钟后重试")
+		time.Sleep(time.Minute)
+		return
+	}
 	for {
 		dbCtx, cancel := context.WithTimeout(ctx, time.Second)
 
