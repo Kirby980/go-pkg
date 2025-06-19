@@ -58,6 +58,7 @@ func NewScheduler[T migrator.Entity](
 
 // 这一个也不是必须的，就是你可以考虑利用配置中心，监听配置中心的变化
 // 把全量校验，增量校验做成分布式任务，利用分布式任务调度平台来调度
+// 批量全量校验和全量校验只能同时运行一个
 func (s *Scheduler[T]) RegisterRoutes(server *gin.RouterGroup) {
 	// 将这个暴露为 HTTP 接口
 	// 你可以配上对应的 UI
@@ -69,6 +70,9 @@ func (s *Scheduler[T]) RegisterRoutes(server *gin.RouterGroup) {
 	server.POST("/full/stop", ginx.Wrap(s.StopFullValidation))
 	server.POST("/incr/stop", ginx.Wrap(s.StopIncrementValidation))
 	server.POST("/incr/start", ginx.WrapBody(s.StartIncrementValidation))
+	server.POST("/full/batch/start", ginx.WrapBody(s.StartFullValidationBatch))
+	server.POST("/full/batch/stop", ginx.Wrap(s.StopFullValidationBatch))
+
 }
 
 // ---- 下面是四个阶段 ---- //
@@ -119,6 +123,7 @@ func (s *Scheduler[T]) DstOnly(c *gin.Context) (ginx.Result, error) {
 	}, nil
 }
 
+// StopIncrementValidation 停止增量校验
 func (s *Scheduler[T]) StopIncrementValidation(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -150,7 +155,7 @@ func (s *Scheduler[T]) StartIncrementValidation(c *gin.Context,
 		var ctx context.Context
 		ctx, s.cancelIncr = context.WithCancel(context.Background())
 		cancel()
-		err := v.Validate(ctx)
+		err := v.Validate(ctx, false)
 		s.l.Warn("退出增量校验", logger.Error(err))
 	}()
 	return ginx.Result{
@@ -185,11 +190,48 @@ func (s *Scheduler[T]) StartFullValidation(c *gin.Context) (ginx.Result, error) 
 	go func() {
 		// 先取消上一次的
 		cancel()
-		err := v.Validate(ctx)
+		err := v.Validate(ctx, false)
 		if err != nil {
 			s.l.Warn("退出全量校验", logger.Error(err))
 		}
 	}()
+	return ginx.Result{
+		Msg: "OK",
+	}, nil
+}
+
+// StartFullValidationBatch 启动批量全量校验
+func (s *Scheduler[T]) StartFullValidationBatch(c *gin.Context, req BatchStartFullRequest) (ginx.Result, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	cancel := s.cancelFull
+	v, err := s.newValidator()
+	if err != nil {
+		return ginx.Result{
+			Code: 5,
+			Msg:  "系统异常",
+		}, err
+	}
+	v.Limit(req.Limit)
+	var ctx context.Context
+	ctx, s.cancelFull = context.WithCancel(context.Background())
+	go func() {
+		cancel()
+		err := v.Validate(ctx, true)
+		if err != nil {
+			s.l.Warn("退出批量全量校验", logger.Error(err))
+		}
+	}()
+	return ginx.Result{
+		Msg: "OK",
+	}, nil
+}
+
+// StopFullValidationBatch 停止批量全量校验
+func (s *Scheduler[T]) StopFullValidationBatch(c *gin.Context) (ginx.Result, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+	s.cancelFull()
 	return ginx.Result{
 		Msg: "OK",
 	}, nil
@@ -213,4 +255,8 @@ type StartIncrRequest struct {
 	// 毫秒数
 	// json 不能正确处理 time.Duration 类型
 	Interval int64 `json:"interval"`
+}
+
+type BatchStartFullRequest struct {
+	Limit int `json:"limit"`
 }

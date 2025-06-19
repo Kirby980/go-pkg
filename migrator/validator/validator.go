@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Kirby980/study/webook/pkg"
 	"github.com/Kirby980/study/webook/pkg/logger"
 	"github.com/Kirby980/study/webook/pkg/migrator"
 	"github.com/Kirby980/study/webook/pkg/migrator/events"
@@ -20,8 +21,11 @@ type Validator[T migrator.Entity] struct {
 	l      logger.Logger
 	p      events.Producer
 	// SRC 表示 以源表为准，DST 表示 以目标表为准
-	direction     string
-	batchSize     int
+	direction string
+	// 增量校验时，每次查询数
+	batchSize int
+	// 批量查询时每次查询数
+	limit         int
 	highLoad      *atomic.Bool
 	utime         int64
 	sleepInterval time.Duration
@@ -114,28 +118,46 @@ func (v *Validator[T]) checkDatabaseLoad() bool {
 	return isHighLoad
 }
 
+// SleepInterval 设置增量校验间隔时间
 func (v *Validator[T]) SleepInterval(i time.Duration) *Validator[T] {
 	v.sleepInterval = i
 	return v
 
 }
 
+// Utime 设置增量校验的 utime
 func (v *Validator[T]) Utime(utime int64) *Validator[T] {
 	v.utime = utime
 	return v
 }
 
+// Incr 设置增量校验
 func (v *Validator[T]) Incr() *Validator[T] {
 	v.fromBase = v.intrFromBase
 	return v
 }
 
-func (v *Validator[T]) Validate(ctx context.Context) error {
+// Limit 设置全量校验批量校验的 limit
+func (v *Validator[T]) Limit(limit int) *Validator[T] {
+	v.limit = limit
+	return v
+}
+
+// Validate 校验
+// batch 是否批量校验
+func (v *Validator[T]) Validate(ctx context.Context, batch bool) error {
 	var eg errgroup.Group
-	eg.Go(func() error {
-		v.validateBaseToTarget(ctx)
-		return nil
-	})
+	if batch {
+		eg.Go(func() error {
+			v.validateBatchBaseToTarget(ctx)
+			return nil
+		})
+	} else {
+		eg.Go(func() error {
+			v.validateBaseToTarget(ctx)
+			return nil
+		})
+	}
 
 	eg.Go(func() error {
 		v.validateTargetToBase(ctx)
@@ -242,6 +264,85 @@ func (v *Validator[T]) validateBaseToTarget(ctx context.Context) {
 	}
 }
 
+// validateBatchBaseToTarget 批量全量校验
+func (v *Validator[T]) validateBatchBaseToTarget(ctx context.Context) {
+	offset := 0
+	for {
+		if v.highLoad.Load() {
+			v.l.Info("数据库高负载,暂停校验,等待1分钟后重试")
+			time.Sleep(time.Minute)
+			continue
+		}
+
+		var srcs []T
+		dbCtx, cancel := context.WithTimeout(ctx, time.Second)
+		err := v.base.WithContext(dbCtx).
+			Order("id").
+			Where("utime>=? ", v.utime).
+			Offset(offset).
+			Limit(v.limit).
+			Find(&srcs).Error
+		cancel()
+		switch err {
+		case context.Canceled, context.DeadlineExceeded:
+			return
+		case nil:
+			if len(srcs) == 0 {
+				return
+			}
+			err1 := v.dstDiff(srcs)
+			if err1 != nil {
+				v.l.Error("校验数据，查询 target 出错",
+					logger.Error(err1))
+			}
+		default:
+			v.l.Error("src => dst 查询源表失败",
+				logger.Error(err))
+		}
+		if len(srcs) < v.limit {
+			return
+		}
+		offset += len(srcs)
+	}
+}
+
+// dstDiff 比对 srcs 和 dsts
+func (v *Validator[T]) dstDiff(srcs []T) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	ids := pkg.ToOtherStruct(srcs, func(idx int, t T) int64 {
+		return t.ID()
+	})
+	var dsts []T
+	err := v.target.WithContext(ctx).Where("id in ?", ids).Find(&dsts).Error
+	if err != nil {
+		return err
+	}
+	dstMap := v.toMap(dsts)
+	for _, src := range srcs {
+		dst, ok := dstMap[src.ID()]
+		if !ok {
+			v.notify(ctx, src.ID(), events.InconsistentEventTypeTargetMissing)
+			continue
+		}
+		if !reflect.DeepEqual(v, dst) {
+			v.notify(ctx, src.ID(), events.InconsistentEventTypeNEQ)
+		}
+	}
+	return nil
+}
+
+// toMap 将数据转换为 map
+func (v *Validator[T]) toMap(data []T) map[int64]T {
+	res := make(map[int64]T, len(data))
+	for _, v := range data {
+		res[v.ID()] = v
+	}
+	return res
+}
+
+// fullFromBase 全量校验校验函数，每次查询一条数据
 func (v *Validator[T]) fullFromBase(ctx context.Context, offset int) (T, error) {
 	dbCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -258,6 +359,7 @@ func (v *Validator[T]) fullFromBase(ctx context.Context, offset int) (T, error) 
 	return src, err
 }
 
+// intrFromBase 增量校验
 func (v *Validator[T]) intrFromBase(ctx context.Context, offset int) (T, error) {
 	dbCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
@@ -384,12 +486,14 @@ func (v *Validator[T]) validateTargetToBase(ctx context.Context) {
 	}
 }
 
+// notifyBaseMissing 通知 base 丢失
 func (v *Validator[T]) notifyBaseMissing(ctx context.Context, ids []int64) {
 	for _, id := range ids {
 		v.notify(ctx, id, events.InconsistentEventTypeBaseMissing)
 	}
 }
 
+// notify 通知数据不一致
 func (v *Validator[T]) notify(ctx context.Context, id int64, typ string) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	err := v.p.ProduceInconsistentEvent(ctx,
