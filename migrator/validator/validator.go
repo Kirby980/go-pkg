@@ -3,6 +3,7 @@ package validator
 import (
 	"context"
 	"reflect"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -54,11 +55,8 @@ func NewValidator[T migrator.Entity](
 			// 检测数据库负载状态
 			isHighLoad := res.checkDatabaseLoad()
 			highLoad.Store(isHighLoad)
-
 			if isHighLoad {
 				res.l.Info("检测到数据库高负载，暂停校验")
-			} else {
-				res.l.Info("数据库负载正常，恢复校验")
 			}
 		}
 	}()
@@ -75,33 +73,62 @@ func (v *Validator[T]) checkDatabaseLoad() bool {
 	var activeConnections int64
 	var maxConnections int64
 	var err error
+
+	// 定义结构体来接收 SHOW STATUS 和 SHOW VARIABLES 的结果
+	type StatusResult struct {
+		VariableName string `gorm:"column:Variable_name"`
+		Value        string `gorm:"column:Value"`
+	}
+
 	switch v.direction {
 	case "SRC":
 		// 查询当前活跃连接数
-		err = v.base.WithContext(ctx).Raw("SHOW STATUS LIKE 'Threads_connected'").Scan(&activeConnections).Error
+		var statusResult StatusResult
+		err = v.base.WithContext(ctx).Raw("SHOW STATUS LIKE 'Threads_connected'").Scan(&statusResult).Error
 		if err != nil {
 			v.l.Error("查询活跃连接数失败", logger.Error(err))
 			return false
 		}
+		activeConnections, err = strconv.ParseInt(statusResult.Value, 10, 64)
+		if err != nil {
+			v.l.Error("解析活跃连接数失败", logger.Error(err))
+			return false
+		}
 
 		// 查询最大连接数
-		err = v.base.WithContext(ctx).Raw("SHOW VARIABLES LIKE 'max_connections'").Scan(&maxConnections).Error
+		err = v.base.WithContext(ctx).Raw("SHOW VARIABLES LIKE 'max_connections'").Scan(&statusResult).Error
 		if err != nil {
 			v.l.Error("查询最大连接数失败", logger.Error(err))
+			return false
+		}
+		maxConnections, err = strconv.ParseInt(statusResult.Value, 10, 64)
+		if err != nil {
+			v.l.Error("解析最大连接数失败", logger.Error(err))
 			return false
 		}
 	case "DST":
 		// 查询当前活跃连接数
-		err = v.target.WithContext(ctx).Raw("SHOW STATUS LIKE 'Threads_connected'").Scan(&activeConnections).Error
+		var statusResult StatusResult
+		err = v.target.WithContext(ctx).Raw("SHOW STATUS LIKE 'Threads_connected'").Scan(&statusResult).Error
 		if err != nil {
 			v.l.Error("查询活跃连接数失败", logger.Error(err))
 			return false
 		}
+		activeConnections, err = strconv.ParseInt(statusResult.Value, 10, 64)
+		if err != nil {
+			v.l.Error("解析活跃连接数失败", logger.Error(err))
+			return false
+		}
 
 		// 查询最大连接数
-		err = v.target.WithContext(ctx).Raw("SHOW VARIABLES LIKE 'max_connections'").Scan(&maxConnections).Error
+		err = v.target.WithContext(ctx).Raw("SHOW VARIABLES LIKE 'max_connections'").Scan(&statusResult).Error
 		if err != nil {
 			v.l.Error("查询最大连接数失败", logger.Error(err))
+			return false
+		}
+		maxConnections, err = strconv.ParseInt(statusResult.Value, 10, 64)
+		if err != nil {
+			v.l.Error("解析最大连接数失败", logger.Error(err))
 			return false
 		}
 	}
@@ -109,7 +136,7 @@ func (v *Validator[T]) checkDatabaseLoad() bool {
 	loadRatio := float64(activeConnections) / float64(maxConnections)
 	isHighLoad := loadRatio > 0.8
 
-	v.l.Info("数据库负载检测",
+	v.l.Debug("数据库负载检测",
 		logger.Int64("active_connections", activeConnections),
 		logger.Int64("max_connections", maxConnections),
 		logger.Float64("load_ratio", loadRatio),
@@ -288,7 +315,11 @@ func (v *Validator[T]) validateBatchBaseToTarget(ctx context.Context) {
 			return
 		case nil:
 			if len(srcs) == 0 {
-				return
+				if v.sleepInterval <= 0 {
+					return
+				}
+				time.Sleep(v.sleepInterval)
+				continue
 			}
 			err1 := v.dstDiff(srcs)
 			if err1 != nil {
