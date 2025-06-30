@@ -194,6 +194,47 @@ func TestTokenBucketLimiter(t *testing.T) {
 	}
 
 	// 验证结果
-	require.Equal(t, 2, successCount, "应该有2个请求成功（桶容量）")
+	require.Equal(t, 2, successCount, "应该有2个请求成功(桶容量为2)")
+	require.Equal(t, 3, timeoutCount, "应该有3个请求超时")
+}
+
+func TestLeakBucketLimiter(t *testing.T) {
+	limiter := NewLeakBucketLimiter(time.Millisecond * 500)
+	defer limiter.Close()
+
+	server := grpc.NewServer(
+		grpc.UnaryInterceptor(limiter.NewServerInterceptor()),
+	)
+	userv1.RegisterUserServiceServer(server, &MockUserService{})
+
+	lis, err := net.Listen("tcp", ":8080")
+	require.NoError(t, err)
+	go server.Serve(lis)
+	defer server.Stop()
+
+	conn, err := grpc.Dial(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer conn.Close()
+
+	client := userv1.NewUserServiceClient(conn)
+
+	successCount := 0
+	timeoutCount := 0
+
+	for i := 0; i < 5; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+		_, err := client.Select(ctx, &userv1.SelectRequest{Id: 123})
+		cancel()
+
+		if err != nil {
+			if status.Code(err) == codes.DeadlineExceeded {
+				timeoutCount++
+			}
+		} else {
+			successCount++
+		}
+	}
+
+	require.Equal(t, 2, successCount, "应该有2个请求成功(桶容量为2)")
 	require.Equal(t, 3, timeoutCount, "应该有3个请求超时")
 }

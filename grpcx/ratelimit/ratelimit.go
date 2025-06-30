@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// CounterLimiter 计数器算法
 type CounterLimiter struct {
 	cnt       *atomic.Int32
 	threshold int32
@@ -31,6 +33,7 @@ func (l *CounterLimiter) NewServerInterceptor() grpc.UnaryServerInterceptor {
 	}
 }
 
+// FixedWindowLimiter 固定窗口算法
 type FixedWindowLimiter struct {
 	// 窗口大小
 	window time.Duration
@@ -66,6 +69,7 @@ func (l *FixedWindowLimiter) NewServerInterceptor() grpc.UnaryServerInterceptor 
 	}
 }
 
+// SlideWindowLimiter 滑动窗口算法
 type SlideWindowLimiter struct {
 	window time.Duration
 	// 请求的时间戳
@@ -105,17 +109,17 @@ func (l *SlideWindowLimiter) NewServerInterceptor() grpc.UnaryServerInterceptor 
 	}
 }
 
+// TokenBucketLimiter 令牌桶算法
 type TokenBucketLimiter struct {
 	//ch      *time.Ticker
 	buckets chan struct{}
 	// 每隔多久一个令牌
-	interval time.Duration
-
-	closeCh chan struct{}
+	interval  time.Duration
+	closeOnce sync.Once
+	closeCh   chan struct{}
 }
 
 // 把 capacity 设置成0，就是漏桶算法
-// 但是，代码可以简化
 func NewTokenBucketLimiter(interval time.Duration, capacity int) *TokenBucketLimiter {
 	return &TokenBucketLimiter{
 		interval: interval,
@@ -138,14 +142,6 @@ func (l *TokenBucketLimiter) NewServerInterceptor() grpc.UnaryServerInterceptor 
 				}
 			}
 		}
-		//for _ = range ticker.C {
-		//	select {
-		//	case l.buckets <- struct{}{}:
-		//	// 发到了桶里面
-		//	default:
-		//		// 桶满了
-		//	}
-		//}
 	}()
 	return func(ctx context.Context, req any,
 		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
@@ -164,6 +160,45 @@ func (l *TokenBucketLimiter) NewServerInterceptor() grpc.UnaryServerInterceptor 
 }
 
 func (l *TokenBucketLimiter) Close() error {
-	close(l.closeCh)
+	l.closeOnce.Do(func() {
+		close(l.closeCh)
+	})
+	return nil
+}
+
+// LeakBucketLimiter 漏桶算法
+type LeakBucketLimiter struct {
+	interval  time.Duration
+	closeCh   chan struct{}
+	closeOnce sync.Once
+}
+
+func NewLeakBucketLimiter(interval time.Duration) *LeakBucketLimiter {
+	return &LeakBucketLimiter{
+		interval: interval,
+		closeCh:  make(chan struct{}),
+	}
+}
+
+func (l *LeakBucketLimiter) NewServerInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(l.interval):
+				// 漏桶算法
+				return handler(ctx, req)
+			case <-l.closeCh:
+				return nil, errors.New("限流器被关了")
+
+			}
+		}
+	}
+}
+func (l *LeakBucketLimiter) Close() error {
+	l.closeOnce.Do(func() {
+		close(l.closeCh)
+	})
 	return nil
 }
