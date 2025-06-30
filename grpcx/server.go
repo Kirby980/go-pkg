@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Kirby980/study/webook/pkg/logger"
-	"github.com/Kirby980/study/webook/pkg/netx"
+	"github.com/Kirby980/go-pkg/logger"
+	"github.com/Kirby980/go-pkg/netx"
 	etcdv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/naming/endpoints"
 	"google.golang.org/grpc"

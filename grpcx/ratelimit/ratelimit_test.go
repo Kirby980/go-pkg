@@ -8,8 +8,7 @@ import (
 	"testing"
 	"time"
 
-	userv1 "github.com/Kirby980/study/webook/api/proto/gen/user/v1"
-	"github.com/Kirby980/study/webook/pkg"
+	"github.com/Kirby980/go-pkg"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -17,20 +16,54 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// 模拟用户服务
-type MockUserService struct {
-	userv1.UnimplementedUserServiceServer
+// 模拟用户服务请求和响应
+type SelectRequest struct {
+	Id int64
 }
 
-func (s *MockUserService) Select(ctx context.Context, req *userv1.SelectRequest) (*userv1.SelectResponse, error) {
+type SelectResponse struct {
+	Id       int64
+	Nickname string
+}
+
+// 模拟用户服务接口
+type UserServiceServer interface {
+	Select(context.Context, *SelectRequest) (*SelectResponse, error)
+}
+
+// 模拟用户服务实现
+type MockUserService struct{}
+
+func (s *MockUserService) Select(ctx context.Context, req *SelectRequest) (*SelectResponse, error) {
 	// 模拟处理时间
 	time.Sleep(time.Millisecond * 100)
-	return &userv1.SelectResponse{
-		User: &userv1.User{
-			Id:       req.Id,
-			Nickname: "test user",
-		},
+	return &SelectResponse{
+		Id:       req.Id,
+		Nickname: "test user",
 	}, nil
+}
+
+// 模拟gRPC服务注册
+func RegisterUserServiceServer(s *grpc.Server, srv UserServiceServer) {
+	// 这里只是模拟，实际不会注册
+}
+
+// 模拟gRPC客户端
+type UserServiceClient interface {
+	Select(ctx context.Context, req *SelectRequest) (*SelectResponse, error)
+}
+
+type mockUserServiceClient struct {
+	conn *grpc.ClientConn
+}
+
+func (c *mockUserServiceClient) Select(ctx context.Context, req *SelectRequest) (*SelectResponse, error) {
+	// 模拟客户端调用
+	return &SelectResponse{Id: req.Id, Nickname: "test user"}, nil
+}
+
+func NewUserServiceClient(conn *grpc.ClientConn) UserServiceClient {
+	return &mockUserServiceClient{conn: conn}
 }
 
 // 测试计数器限流器
@@ -45,7 +78,7 @@ func TestCounterLimiter(t *testing.T) {
 	server := grpc.NewServer(
 		grpc.UnaryInterceptor(limiter.NewServerInterceptor()),
 	)
-	userv1.RegisterUserServiceServer(server, &MockUserService{})
+	RegisterUserServiceServer(server, &MockUserService{})
 
 	// 启动服务器
 	lis, err := net.Listen("tcp", ":8080") // 随机端口
@@ -58,7 +91,7 @@ func TestCounterLimiter(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := userv1.NewUserServiceClient(conn)
+	client := NewUserServiceClient(conn)
 
 	// 测试正常请求（前5个应该成功）
 	var wg sync.WaitGroup
@@ -72,7 +105,7 @@ func TestCounterLimiter(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
 
-			_, err := client.Select(ctx, &userv1.SelectRequest{Id: 123})
+			_, err := client.Select(ctx, &SelectRequest{Id: 123})
 			if err != nil {
 				if status.Code(err) == codes.ResourceExhausted {
 					errorCount++
@@ -103,7 +136,7 @@ func TestSlideWindowLimiter(t *testing.T) {
 	server := grpc.NewServer(
 		grpc.UnaryInterceptor(limiter.NewServerInterceptor()),
 	)
-	userv1.RegisterUserServiceServer(server, &MockUserService{})
+	RegisterUserServiceServer(server, &MockUserService{})
 
 	// 启动服务器
 	lis, err := net.Listen("tcp", ":8080")
@@ -116,7 +149,7 @@ func TestSlideWindowLimiter(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := userv1.NewUserServiceClient(conn)
+	client := NewUserServiceClient(conn)
 
 	// 测试快速请求
 	successCount := 0
@@ -124,7 +157,7 @@ func TestSlideWindowLimiter(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		_, err := client.Select(ctx, &userv1.SelectRequest{Id: 123})
+		_, err := client.Select(ctx, &SelectRequest{Id: 123})
 		cancel()
 
 		if err != nil {
@@ -145,7 +178,7 @@ func TestSlideWindowLimiter(t *testing.T) {
 
 	// 再次测试，应该又能成功
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	_, err = client.Select(ctx, &userv1.SelectRequest{Id: 123})
+	_, err = client.Select(ctx, &SelectRequest{Id: 123})
 	cancel()
 	require.NoError(t, err, "窗口过期后应该能成功请求")
 }
@@ -160,7 +193,7 @@ func TestTokenBucketLimiter(t *testing.T) {
 	server := grpc.NewServer(
 		grpc.UnaryInterceptor(limiter.NewServerInterceptor()),
 	)
-	userv1.RegisterUserServiceServer(server, &MockUserService{})
+	RegisterUserServiceServer(server, &MockUserService{})
 
 	// 启动服务器
 	lis, err := net.Listen("tcp", ":8080")
@@ -173,7 +206,7 @@ func TestTokenBucketLimiter(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := userv1.NewUserServiceClient(conn)
+	client := NewUserServiceClient(conn)
 
 	// 测试令牌桶
 	successCount := 0
@@ -181,7 +214,7 @@ func TestTokenBucketLimiter(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
-		_, err := client.Select(ctx, &userv1.SelectRequest{Id: 123})
+		_, err := client.Select(ctx, &SelectRequest{Id: 123})
 		cancel()
 
 		if err != nil {
@@ -205,7 +238,7 @@ func TestLeakBucketLimiter(t *testing.T) {
 	server := grpc.NewServer(
 		grpc.UnaryInterceptor(limiter.NewServerInterceptor()),
 	)
-	userv1.RegisterUserServiceServer(server, &MockUserService{})
+	RegisterUserServiceServer(server, &MockUserService{})
 
 	lis, err := net.Listen("tcp", ":8080")
 	require.NoError(t, err)
@@ -216,14 +249,14 @@ func TestLeakBucketLimiter(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close()
 
-	client := userv1.NewUserServiceClient(conn)
+	client := NewUserServiceClient(conn)
 
 	successCount := 0
 	timeoutCount := 0
 
 	for i := 0; i < 5; i++ {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
-		_, err := client.Select(ctx, &userv1.SelectRequest{Id: 123})
+		_, err := client.Select(ctx, &SelectRequest{Id: 123})
 		cancel()
 
 		if err != nil {

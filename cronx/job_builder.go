@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Kirby980/study/webook/pkg/logger"
+	"github.com/Kirby980/go-pkg/logger"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/robfig/cron/v3"
 	"go.opentelemetry.io/otel/trace"

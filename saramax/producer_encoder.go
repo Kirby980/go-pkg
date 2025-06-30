@@ -3,7 +3,7 @@ package saramax
 import (
 	"encoding/json"
 
-	"github.com/Kirby980/study/webook/pkg/logger"
+	"github.com/Kirby980/go-pkg/logger"
 )
 
 // JsonEncoder 是sarama.ProducerMessage的结构体扩展包

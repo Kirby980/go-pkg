@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/IBM/sarama"
-	"github.com/Kirby980/study/webook/pkg/logger"
+	"github.com/Kirby980/go-pkg/logger"
 )
 
 //go:generate mockgen -source=./producer.go -package=eventmock -destination=./mocks/article_producer.mock.go Producer

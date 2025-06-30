@@ -4,8 +4,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Kirby980/study/webook/pkg/logger"
-	"github.com/Kirby980/study/webook/pkg/ratelimit"
+	"github.com/Kirby980/go-pkg/logger"
+	"github.com/Kirby980/go-pkg/ratelimit"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"

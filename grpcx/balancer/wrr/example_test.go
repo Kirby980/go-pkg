@@ -6,12 +6,33 @@ import (
 	"log"
 	"testing"
 
-	userv1 "github.com/Kirby980/study/webook/api/proto/gen/user/v1"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 )
+
+// 模拟用户服务请求和响应结构体
+type SelectRequest struct {
+	Id int64
+}
+
+type SelectResponse struct {
+	Id   int64
+	Name string
+}
+
+// 模拟用户服务客户端接口
+type UserServiceClient interface {
+	Select(ctx context.Context, req *SelectRequest) (*SelectResponse, error)
+}
+
+// 模拟用户服务客户端实现
+type mockUserServiceClient struct{}
+
+func (m *mockUserServiceClient) Select(ctx context.Context, req *SelectRequest) (*SelectResponse, error) {
+	return &SelectResponse{Id: req.Id, Name: "mock_user"}, nil
+}
 
 // 示例：VIP分组负载均衡
 func ExampleVIPBalancer() {
@@ -26,11 +47,11 @@ func ExampleVIPBalancer() {
 	}
 	defer cc.Close()
 
-	client := userv1.NewUserServiceClient(cc)
+	client := &mockUserServiceClient{}
 
 	// 2. VIP用户请求 - 方法1: 通过VIP标识
 	ctx1 := metadata.AppendToOutgoingContext(context.Background(), "vip", "true")
-	resp1, err := client.Select(ctx1, &userv1.SelectRequest{Id: 123})
+	resp1, err := client.Select(ctx1, &SelectRequest{Id: 123})
 	if err != nil {
 		log.Printf("VIP请求失败: %v", err)
 	} else {
@@ -39,7 +60,7 @@ func ExampleVIPBalancer() {
 
 	// 3. VIP用户请求 - 方法2: 通过用户类型
 	ctx2 := metadata.AppendToOutgoingContext(context.Background(), "user-type", "vip")
-	resp2, err := client.Select(ctx2, &userv1.SelectRequest{Id: 456})
+	resp2, err := client.Select(ctx2, &SelectRequest{Id: 456})
 	if err != nil {
 		log.Printf("VIP请求失败: %v", err)
 	} else {
@@ -48,7 +69,7 @@ func ExampleVIPBalancer() {
 
 	// 4. VIP用户请求 - 方法3: 通过用户ID
 	ctx3 := metadata.AppendToOutgoingContext(context.Background(), "user-id", "V12345")
-	resp3, err := client.Select(ctx3, &userv1.SelectRequest{Id: 789})
+	resp3, err := client.Select(ctx3, &SelectRequest{Id: 789})
 	if err != nil {
 		log.Printf("VIP请求失败: %v", err)
 	} else {
@@ -56,7 +77,7 @@ func ExampleVIPBalancer() {
 	}
 
 	// 5. 普通用户请求
-	resp4, err := client.Select(context.Background(), &userv1.SelectRequest{Id: 999})
+	resp4, err := client.Select(context.Background(), &SelectRequest{Id: 999})
 	if err != nil {
 		log.Printf("普通请求失败: %v", err)
 	} else {

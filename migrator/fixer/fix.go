@@ -3,7 +3,7 @@ package fixer
 import (
 	"context"
 
-	"github.com/Kirby980/study/webook/pkg/migrator"
+	"github.com/Kirby980/go-pkg/migrator"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )

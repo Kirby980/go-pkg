@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/IBM/sarama"
-	"github.com/Kirby980/study/webook/pkg/logger"
+	"github.com/Kirby980/go-pkg/logger"
 )
 
 type Handler[T any] struct {

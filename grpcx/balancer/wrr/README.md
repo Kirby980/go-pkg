@@ -57,7 +57,7 @@ err = em.AddEndpoint(ctx, key, endpoints.Endpoint{
 ### 2. 客户端配置
 
 ```go
-import _ "github.com/Kirby980/study/webook/pkg/grpcx/balancer/wrr"
+import _ "github.com/Kirby980/go-pkg/pkg/grpcx/balancer/wrr"
 
 cc, err := grpc.Dial("etcd:///service/user",
     grpc.WithResolvers(bd),

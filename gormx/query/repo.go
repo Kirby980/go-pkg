@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/Kirby980/study/webook/pkg/gormx/cache"
+	"github.com/Kirby980/go-pkg/gormx/cache"
 	"gorm.io/gorm"
 )
 

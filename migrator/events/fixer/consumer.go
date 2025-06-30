@@ -6,11 +6,11 @@ import (
 	"time"
 
 	"github.com/IBM/sarama"
-	"github.com/Kirby980/study/webook/pkg/logger"
-	"github.com/Kirby980/study/webook/pkg/migrator"
-	"github.com/Kirby980/study/webook/pkg/migrator/events"
-	"github.com/Kirby980/study/webook/pkg/migrator/fixer"
-	"github.com/Kirby980/study/webook/pkg/saramax"
+	"github.com/Kirby980/go-pkg/logger"
+	"github.com/Kirby980/go-pkg/migrator"
+	"github.com/Kirby980/go-pkg/migrator/events"
+	"github.com/Kirby980/go-pkg/migrator/fixer"
+	"github.com/Kirby980/go-pkg/saramax"
 	"gorm.io/gorm"
 )
 

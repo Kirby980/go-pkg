@@ -7,11 +7,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/Kirby980/study/webook/pkg"
-	"github.com/Kirby980/study/webook/pkg/logger"
-	"github.com/Kirby980/study/webook/pkg/migrator"
-	"github.com/Kirby980/study/webook/pkg/migrator/events"
-	"github.com/ecodeclub/ekit/slice"
+	"github.com/Kirby980/go-pkg"
+	"github.com/Kirby980/go-pkg/logger"
+	"github.com/Kirby980/go-pkg/migrator"
+	"github.com/Kirby980/go-pkg/migrator/events"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
 )
@@ -479,7 +478,7 @@ func (v *Validator[T]) validateTargetToBase(ctx context.Context) {
 			time.Sleep(v.sleepInterval)
 			continue
 		case nil:
-			ids := slice.Map(dstTs, func(idx int, t T) int64 {
+			ids := pkg.ToOtherStruct(dstTs, func(idx int, t T) int64 {
 				return t.ID()
 			})
 			// 可以直接用 NOT IN
@@ -492,12 +491,12 @@ func (v *Validator[T]) validateTargetToBase(ctx context.Context) {
 			case gorm.ErrRecordNotFound:
 				v.notifyBaseMissing(ctx, ids)
 			case nil:
-				srcIds := slice.Map(srcTs, func(idx int, t T) int64 {
+				srcIds := pkg.ToOtherStruct(srcTs, func(idx int, t T) int64 {
 					return t.ID()
 				})
 				// 计算差集
 				// 也就是，src 里面的咩有的
-				diff := slice.DiffSet(ids, srcIds)
+				diff := pkg.SliceDiffSet(ids, srcIds)
 				v.notifyBaseMissing(ctx, diff)
 			// 全没有
 			default:

@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Kirby980/study/webook/pkg/ginx"
-	"github.com/Kirby980/study/webook/pkg/gormx/connpool"
-	"github.com/Kirby980/study/webook/pkg/logger"
-	"github.com/Kirby980/study/webook/pkg/migrator"
-	"github.com/Kirby980/study/webook/pkg/migrator/events"
-	"github.com/Kirby980/study/webook/pkg/migrator/validator"
+	"github.com/Kirby980/go-pkg/ginx"
+	"github.com/Kirby980/go-pkg/gormx/connpool"
+	"github.com/Kirby980/go-pkg/logger"
+	"github.com/Kirby980/go-pkg/migrator"
+	"github.com/Kirby980/go-pkg/migrator/events"
+	"github.com/Kirby980/go-pkg/migrator/validator"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
