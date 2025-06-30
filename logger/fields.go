@@ -37,6 +37,13 @@ func Bool(key string, val bool) Field {
 
 }
 
+func Bytes(key string, val []byte) Field {
+	return Field{
+		Key:   key,
+		Value: val,
+	}
+}
+
 func Float64(key string, val float64) Field {
 	return Field{
 		Key:   key,
