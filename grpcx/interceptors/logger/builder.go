@@ -87,7 +87,7 @@ func (i *InterceptorBuilder) BuildClient() grpc.UnaryClientInterceptor {
 	}
 }
 
-func (i *InterceptorBuilder) Build() grpc.UnaryServerInterceptor {
+func (i *InterceptorBuilder) BuildServer() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context,
 		req any, info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (resp any, err error) {

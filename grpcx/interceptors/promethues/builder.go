@@ -26,7 +26,7 @@ func NewInterceptorBuilder(namespace, subsystem string) *InterceptorBuilder {
 	}
 }
 
-func (b *InterceptorBuilder) BuilderServer() grpc.UnaryServerInterceptor {
+func (b *InterceptorBuilder) BuildServer() grpc.UnaryServerInterceptor {
 	summary := prometheus.NewSummaryVec(
 		prometheus.SummaryOpts{
 			Namespace: b.Namespace,

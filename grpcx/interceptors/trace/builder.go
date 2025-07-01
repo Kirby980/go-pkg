@@ -29,7 +29,7 @@ func NewInterceptorBuilder(tracer trace.Tracer, propagator propagation.TextMapPr
 	}
 }
 
-func (b *InterceptorBuilder) BuilderClient() grpc.UnaryClientInterceptor {
+func (b *InterceptorBuilder) BuildClient() grpc.UnaryClientInterceptor {
 	propagator := b.propagator
 	if propagator == nil {
 		propagator = otel.GetTextMapPropagator()
