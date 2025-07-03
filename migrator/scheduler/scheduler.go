@@ -29,6 +29,10 @@ type Scheduler[T migrator.Entity] struct {
 	cancelIncr func()
 	producer   events.Producer
 
+	// 添加状态管理
+	isFullRunning bool
+	isIncrRunning bool
+
 	// 如果你要允许多个全量校验同时运行
 	//fulls map[string]func()
 }
@@ -72,7 +76,22 @@ func (s *Scheduler[T]) RegisterRoutes(server *gin.RouterGroup) {
 	server.POST("/incr/start", ginx.WrapBody(s.StartIncrementValidation))
 	server.POST("/full/batch/start", ginx.WrapBody(s.StartFullValidationBatch))
 	server.POST("/full/batch/stop", ginx.Wrap(s.StopFullValidationBatch))
+	server.GET("/status", ginx.Wrap(s.GetStatus))
+}
 
+// GetStatus 获取当前状态
+func (s *Scheduler[T]) GetStatus(c *gin.Context) (ginx.Result, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	return ginx.Result{
+		Data: map[string]interface{}{
+			"pattern":      s.pattern,
+			"full_running": s.isFullRunning,
+			"incr_running": s.isIncrRunning,
+		},
+		Msg: "OK",
+	}, nil
 }
 
 // ---- 下面是四个阶段 ---- //
@@ -127,9 +146,16 @@ func (s *Scheduler[T]) DstOnly(c *gin.Context) (ginx.Result, error) {
 func (s *Scheduler[T]) StopIncrementValidation(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.cancelIncr()
+
+	if s.isIncrRunning {
+		s.cancelIncr()
+		s.isIncrRunning = false
+		return ginx.Result{
+			Msg: "停止增量校验成功",
+		}, nil
+	}
 	return ginx.Result{
-		Msg: "OK",
+		Msg: "增量校验未运行",
 	}, nil
 }
 
@@ -139,8 +165,20 @@ func (s *Scheduler[T]) StartIncrementValidation(c *gin.Context,
 	// 开启增量校验
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	// 检查是否已经在运行
+	if s.isIncrRunning {
+		return ginx.Result{
+			Code: 400,
+			Msg:  "增量校验已在运行中",
+		}, nil
+	}
+
 	// 取消上一次的
-	cancel := s.cancelIncr
+	if s.cancelIncr != nil {
+		s.cancelIncr()
+	}
+
 	v, err := s.newValidator()
 	if err != nil {
 		return ginx.Result{
@@ -154,10 +192,15 @@ func (s *Scheduler[T]) StartIncrementValidation(c *gin.Context,
 	go func() {
 		var ctx context.Context
 		ctx, s.cancelIncr = context.WithCancel(context.Background())
-		cancel()
+
+		s.isIncrRunning = true
 		err := v.Validate(ctx, false)
-		s.l.Warn("退出增量校验", logger.Error(err))
+		if err != nil {
+			s.l.Warn("退出增量校验", logger.Error(err))
+		}
+		s.isIncrRunning = false
 	}()
+
 	return ginx.Result{
 		Msg: "启动增量校验成功",
 	}, nil
@@ -167,9 +210,16 @@ func (s *Scheduler[T]) StartIncrementValidation(c *gin.Context,
 func (s *Scheduler[T]) StopFullValidation(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.cancelFull()
+
+	if s.isFullRunning {
+		s.cancelFull()
+		s.isFullRunning = false
+		return ginx.Result{
+			Msg: "停止全量校验成功",
+		}, nil
+	}
 	return ginx.Result{
-		Msg: "OK",
+		Msg: "全量校验未运行",
 	}, nil
 }
 
@@ -178,25 +228,43 @@ func (s *Scheduler[T]) StartFullValidation(c *gin.Context) (ginx.Result, error) 
 	// 可以考虑去重的问题
 	s.lock.Lock()
 	defer s.lock.Unlock()
+
+	// 检查是否已经在运行
+	if s.isFullRunning {
+		return ginx.Result{
+			Code: 400,
+			Msg:  "全量校验已在运行中",
+		}, nil
+	}
+
 	// 取消上一次的
-	cancel := s.cancelFull
+	if s.cancelFull != nil {
+		s.cancelFull()
+	}
+
 	v, err := s.newValidator()
 	if err != nil {
-		return ginx.Result{}, err
+		return ginx.Result{
+			Code: 5,
+			Msg:  "创建校验器失败",
+		}, err
 	}
 	var ctx context.Context
 	ctx, s.cancelFull = context.WithCancel(context.Background())
+	s.isFullRunning = true
 
 	go func() {
 		// 先取消上一次的
-		cancel()
 		err := v.Validate(ctx, false)
 		if err != nil {
 			s.l.Warn("退出全量校验", logger.Error(err))
 		}
+		s.isFullRunning = false
+
 	}()
+
 	return ginx.Result{
-		Msg: "OK",
+		Msg: "启动全量校验成功",
 	}, nil
 }
 
@@ -204,7 +272,20 @@ func (s *Scheduler[T]) StartFullValidation(c *gin.Context) (ginx.Result, error) 
 func (s *Scheduler[T]) StartFullValidationBatch(c *gin.Context, req BatchStartFullRequest) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	cancel := s.cancelFull
+
+	// 检查是否已经在运行
+	if s.isFullRunning {
+		return ginx.Result{
+			Code: 400,
+			Msg:  "全量校验已在运行中",
+		}, nil
+	}
+
+	// 取消上一次的
+	if s.cancelFull != nil {
+		s.cancelFull()
+	}
+
 	v, err := s.newValidator()
 	if err != nil {
 		return ginx.Result{
@@ -213,17 +294,22 @@ func (s *Scheduler[T]) StartFullValidationBatch(c *gin.Context, req BatchStartFu
 		}, err
 	}
 	v.Limit(req.Limit)
-	var ctx context.Context
-	ctx, s.cancelFull = context.WithCancel(context.Background())
+
+	// 创建新的 context 和 cancel 函数
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancelFull = cancel
+	s.isFullRunning = true
+
 	go func() {
-		cancel()
 		err := v.Validate(ctx, true)
 		if err != nil {
 			s.l.Warn("退出批量全量校验", logger.Error(err))
 		}
+		s.isFullRunning = false
 	}()
+
 	return ginx.Result{
-		Msg: "OK",
+		Msg: "启动批量全量校验成功",
 	}, nil
 }
 
@@ -231,9 +317,17 @@ func (s *Scheduler[T]) StartFullValidationBatch(c *gin.Context, req BatchStartFu
 func (s *Scheduler[T]) StopFullValidationBatch(c *gin.Context) (ginx.Result, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
-	s.cancelFull()
+
+	if s.isFullRunning {
+		s.cancelFull()
+		s.isFullRunning = false
+		return ginx.Result{
+			Msg: "停止批量全量校验成功",
+		}, nil
+	}
+
 	return ginx.Result{
-		Msg: "OK",
+		Msg: "批量全量校验未运行",
 	}, nil
 }
 

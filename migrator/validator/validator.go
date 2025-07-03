@@ -178,17 +178,20 @@ func (v *Validator[T]) Validate(ctx context.Context, batch bool) error {
 			v.validateBatchBaseToTarget(ctx)
 			return nil
 		})
+		eg.Go(func() error {
+			v.validateBatchTargetToBase(ctx)
+			return nil
+		})
 	} else {
 		eg.Go(func() error {
 			v.validateBaseToTarget(ctx)
 			return nil
 		})
+		eg.Go(func() error {
+			v.validateTargetToBase(ctx)
+			return nil
+		})
 	}
-
-	eg.Go(func() error {
-		v.validateTargetToBase(ctx)
-		return nil
-	})
 	return eg.Wait()
 }
 
@@ -302,13 +305,27 @@ func (v *Validator[T]) validateBatchBaseToTarget(ctx context.Context) {
 
 		var srcs []T
 		dbCtx, cancel := context.WithTimeout(ctx, time.Second)
-		err := v.base.WithContext(dbCtx).
-			Order("id").
-			Where("utime>=? ", v.utime).
-			Offset(offset).
-			Limit(v.limit).
-			Find(&srcs).Error
+
+		// 全量校验不应该加 utime 条件，应该校验所有数据
+		var err error
+		if v.utime > 0 {
+			// 增量校验模式
+			err = v.base.WithContext(dbCtx).
+				Order("id").
+				Where("utime >= ?", v.utime).
+				Offset(offset).
+				Limit(v.limit).
+				Find(&srcs).Error
+		} else {
+			// 全量校验模式
+			err = v.base.WithContext(dbCtx).
+				Order("id").
+				Offset(offset).
+				Limit(v.limit).
+				Find(&srcs).Error
+		}
 		cancel()
+
 		switch err {
 		case context.Canceled, context.DeadlineExceeded:
 			return
@@ -356,7 +373,8 @@ func (v *Validator[T]) dstDiff(srcs []T) error {
 			v.notify(ctx, src.ID(), events.InconsistentEventTypeTargetMissing)
 			continue
 		}
-		if !reflect.DeepEqual(v, dst) {
+		// 修复参数错误：应该是 src, dst 而不是 v, dst
+		if !reflect.DeepEqual(src, dst) {
 			v.notify(ctx, src.ID(), events.InconsistentEventTypeNEQ)
 		}
 	}
@@ -449,27 +467,30 @@ func (v *Validator[T]) validateTargetToBase(ctx context.Context) {
 	for {
 		dbCtx, cancel := context.WithTimeout(ctx, time.Second)
 
-		var dstTs []T
-		err := v.target.WithContext(dbCtx).
-			Where("utime > ?", v.utime).
-			Select("id").
-			// WHERE 条件二分查找 COUNT
-			Offset(offset).Limit(v.batchSize).
-			Order("utime").Find(&dstTs).Error
-		cancel()
-		if len(dstTs) == 0 {
-			// 没数据了。直接返回
-			if v.sleepInterval <= 0 {
-				return
-			}
-			time.Sleep(v.sleepInterval)
-			continue
+		var dstTs T
+		var err error
+
+		// 根据校验模式决定是否使用 utime 条件
+		if v.utime > 0 {
+			// 增量校验模式：只校验指定时间后的数据
+			err = v.target.WithContext(dbCtx).
+				Where("utime > ?", v.utime).
+				Select("id").
+				Offset(offset).
+				Order("utime").First(&dstTs).Error
+		} else {
+			// 全量校验模式：校验所有数据
+			err = v.target.WithContext(dbCtx).
+				Select("id").
+				Offset(offset).
+				Order("id").First(&dstTs).Error
 		}
+		cancel()
+
 		switch err {
 		case context.Canceled, context.DeadlineExceeded:
 			// 超时或者被人取消了
 			return
-		// 正常来说，gorm 在 Find 方法接收的是切片的时候，不会返回 gorm.ErrRecordNotFound
 		case gorm.ErrRecordNotFound:
 			// 没数据了。直接返回
 			if v.sleepInterval <= 0 {
@@ -478,41 +499,45 @@ func (v *Validator[T]) validateTargetToBase(ctx context.Context) {
 			time.Sleep(v.sleepInterval)
 			continue
 		case nil:
-			ids := pkg.ToOtherStruct(dstTs, func(idx int, t T) int64 {
-				return t.ID()
-			})
-			// 可以直接用 NOT IN
-			var srcTs []T
-			err = v.base.Where("id IN ?", ids).Find(&srcTs).Error
+			// 找到了 target 中的数据，去 base 里面找对应的数据
+			var srcTs T
+			err = v.base.Where("id = ?", dstTs.ID()).First(&srcTs).Error
 			switch err {
 			case context.Canceled, context.DeadlineExceeded:
 				// 超时或者被人取消了
 				return
 			case gorm.ErrRecordNotFound:
-				v.notifyBaseMissing(ctx, ids)
+				// 这意味着，base 里面少了数据
+				v.notify(ctx, dstTs.ID(), events.InconsistentEventTypeBaseMissing)
 			case nil:
-				srcIds := pkg.ToOtherStruct(srcTs, func(idx int, t T) int64 {
-					return t.ID()
-				})
-				// 计算差集
-				// 也就是，src 里面的咩有的
-				diff := pkg.SliceDiffSet(ids, srcIds)
-				v.notifyBaseMissing(ctx, diff)
-			// 全没有
+				// 如果有自定义的比较逻辑，就用自定义的比较逻辑
+				// 如果没有，就用反射
+				var dstAny any = dstTs
+				if c1, ok := dstAny.(interface {
+					// 有没有自定义的比较逻辑
+					CompareTo(c2 migrator.Entity) bool
+				}); ok {
+					// 有，我就用它的
+					if !c1.CompareTo(srcTs) {
+						v.notify(ctx, dstTs.ID(),
+							events.InconsistentEventTypeNEQ)
+					}
+				} else {
+					// 没有，我就用反射
+					if !reflect.DeepEqual(dstTs, srcTs) {
+						v.notify(ctx, dstTs.ID(),
+							events.InconsistentEventTypeNEQ)
+					}
+				}
 			default:
 				// 记录日志
+				v.l.Error("查询 base 数据失败", logger.Error(err))
 			}
 		default:
 			// 记录日志，continue 掉
 			v.l.Error("查询target 失败", logger.Error(err))
 		}
-		offset += len(dstTs)
-		if len(dstTs) < v.batchSize {
-			if v.sleepInterval <= 0 {
-				return
-			}
-			time.Sleep(v.sleepInterval)
-		}
+		offset++
 	}
 }
 
@@ -526,12 +551,13 @@ func (v *Validator[T]) notifyBaseMissing(ctx context.Context, ids []int64) {
 // notify 通知数据不一致
 func (v *Validator[T]) notify(ctx context.Context, id int64, typ string) {
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	err := v.p.ProduceInconsistentEvent(ctx,
-		events.InconsistentEvent{
-			ID:        id,
-			Direction: v.direction,
-			Type:      typ,
-		})
+	event := events.InconsistentEvent{
+		ID:        id,
+		Direction: v.direction,
+		Type:      typ,
+	}
+	v.l.Info("发送数据不一致事件", logger.Int64("id", id), logger.String("type", typ), logger.String("direction", v.direction))
+	err := v.p.ProduceInconsistentEvent(ctx, event)
 	cancel()
 	if err != nil {
 		// 这又是一个问题
@@ -539,5 +565,93 @@ func (v *Validator[T]) notify(ctx context.Context, id int64, typ string) {
 		// 你可以重试，但是重试也会失败，记日志，告警，手动去修
 		// 我直接忽略，下一轮修复和校验又会找出来
 		v.l.Error("发送数据不一致的消息失败", logger.Error(err))
+	} else {
+		v.l.Info("数据不一致事件发送成功", logger.Int64("id", id), logger.String("type", typ))
 	}
+}
+
+// validateBatchTargetToBase 批量反向校验
+func (v *Validator[T]) validateBatchTargetToBase(ctx context.Context) {
+	offset := 0
+	for {
+		if v.highLoad.Load() {
+			v.l.Info("数据库高负载,暂停校验,等待1分钟后重试")
+			time.Sleep(time.Minute)
+			continue
+		}
+
+		var dstTs []T
+		dbCtx, cancel := context.WithTimeout(ctx, time.Second)
+
+		// 根据校验模式决定是否使用 utime 条件
+		var err error
+		if v.utime > 0 {
+			// 增量校验模式：只校验指定时间后的数据
+			err = v.target.WithContext(dbCtx).
+				Where("utime > ?", v.utime).
+				Select("id").
+				Offset(offset).Limit(v.limit).
+				Order("utime").Find(&dstTs).Error
+		} else {
+			// 全量校验模式：校验所有数据
+			err = v.target.WithContext(dbCtx).
+				Select("id").
+				Offset(offset).Limit(v.limit).
+				Order("id").Find(&dstTs).Error
+		}
+		cancel()
+
+		switch err {
+		case context.Canceled, context.DeadlineExceeded:
+			return
+		case nil:
+			if len(dstTs) == 0 {
+				if v.sleepInterval <= 0 {
+					return
+				}
+				time.Sleep(v.sleepInterval)
+				continue
+			}
+			err1 := v.baseDiff(dstTs)
+			if err1 != nil {
+				v.l.Error("校验数据，查询 base 出错",
+					logger.Error(err1))
+			}
+		default:
+			v.l.Error("dst => src 查询目标表失败",
+				logger.Error(err))
+		}
+		if len(dstTs) < v.limit {
+			return
+		}
+		offset += len(dstTs)
+	}
+}
+
+// baseDiff 比对 dsts 和 srcs
+func (v *Validator[T]) baseDiff(dsts []T) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	ids := pkg.ToOtherStruct(dsts, func(idx int, t T) int64 {
+		return t.ID()
+	})
+	var srcs []T
+	err := v.base.WithContext(ctx).Where("id in ?", ids).Find(&srcs).Error
+	if err != nil {
+		return err
+	}
+	srcMap := v.toMap(srcs)
+	for _, dst := range dsts {
+		src, ok := srcMap[dst.ID()]
+		if !ok {
+			v.notify(ctx, dst.ID(), events.InconsistentEventTypeBaseMissing)
+			continue
+		}
+		// 比较数据一致性
+		if !reflect.DeepEqual(src, dst) {
+			v.notify(ctx, dst.ID(), events.InconsistentEventTypeNEQ)
+		}
+	}
+	return nil
 }

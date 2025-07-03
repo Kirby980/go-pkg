@@ -69,11 +69,32 @@ func (r *Consumer[T]) Start() error {
 func (r *Consumer[T]) Consume(msg *sarama.ConsumerMessage, t events.InconsistentEvent) error {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
+
+	r.l.Info("收到数据不一致事件",
+		logger.Int64("id", t.ID),
+		logger.String("direction", t.Direction),
+		logger.String("type", t.Type))
+
+	var err error
 	switch t.Direction {
 	case "SRC":
-		return r.srcFirst.Fix(ctx, t.ID)
+		err = r.srcFirst.Fix(ctx, t.ID)
 	case "DST":
-		return r.dstFirst.Fix(ctx, t.ID)
+		err = r.dstFirst.Fix(ctx, t.ID)
+	default:
+		err = errors.New("未知的校验方向")
 	}
-	return errors.New("未知的校验方向")
+
+	if err != nil {
+		r.l.Error("修复数据失败",
+			logger.Int64("id", t.ID),
+			logger.String("direction", t.Direction),
+			logger.Error(err))
+	} else {
+		r.l.Info("数据修复成功",
+			logger.Int64("id", t.ID),
+			logger.String("direction", t.Direction))
+	}
+
+	return err
 }

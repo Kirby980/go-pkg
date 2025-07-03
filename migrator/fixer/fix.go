@@ -2,6 +2,7 @@ package fixer
 
 import (
 	"context"
+	"errors"
 
 	"github.com/Kirby980/go-pkg/migrator"
 	"gorm.io/gorm"
@@ -46,12 +47,30 @@ func (o *OverrideFixer[T]) Fix(ctx context.Context, id int64) error {
 	switch err {
 	// 找到了数据
 	case nil:
-		return o.target.Clauses(&clause.OnConflict{
+		// 使用 Upsert 操作，如果存在则更新，不存在则插入
+		result := o.target.Clauses(&clause.OnConflict{
 			// 我们需要 Entity 告诉我们，修复哪些数据
 			DoUpdates: clause.AssignmentColumns(o.columns),
-		}).Create(&src).Error
+		}).Create(&src)
+		if result.Error != nil {
+			return result.Error
+		}
+		// 检查是否真的插入了数据
+		if result.RowsAffected == 0 {
+			return errors.New("修复数据失败：没有影响任何行")
+		}
+		return nil
 	case gorm.ErrRecordNotFound:
-		return o.target.Delete("id = ?", id).Error
+		// 源表没有数据，删除目标表中的数据
+		result := o.target.Delete("id = ?", id)
+		if result.Error != nil {
+			return result.Error
+		}
+		// 检查是否真的删除了数据
+		if result.RowsAffected == 0 {
+			return errors.New("删除数据失败：没有影响任何行")
+		}
+		return nil
 	default:
 		return err
 	}
