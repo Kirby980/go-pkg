@@ -8,95 +8,86 @@ import (
 
 	"github.com/Kirby980/go-pkg/logger"
 	"github.com/Kirby980/go-pkg/netx"
-	etcdv3 "go.etcd.io/etcd/client/v3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.etcd.io/etcd/client/v3/naming/endpoints"
 	"google.golang.org/grpc"
 )
 
 type Server struct {
 	*grpc.Server
-	Port      int
-	EtcdAddrs []string
-	Name      string
-	key       string
-	em        endpoints.Manager
-	client    *etcdv3.Client
-	kaCancel  context.CancelFunc
-	L         logger.Logger
+	Port int
+	// ETCD 服务注册租约 TTL
+	EtcdTTL     int64
+	EtcdClient  *clientv3.Client
+	etcdManager endpoints.Manager
+	etcdKey     string
+	cancel      func()
+	Name        string
+	L           logger.Logger
 }
 
 func (s *Server) Serve() error {
-	l, err := net.Listen("tcp", ":"+strconv.Itoa(s.Port))
+	// 初始化一个控制整个过程的 ctx
+	// 你也可以考虑让外面传进来，这样的话就是 main 函数自己去控制了
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel = cancel
+	port := strconv.Itoa(s.Port)
+	l, err := net.Listen("tcp", ":"+port)
 	if err != nil {
-		panic(err)
+		return err
 	}
-	err = s.register()
+	// 要先确保启动成功，再注册服务
+	err = s.register(ctx, port)
 	if err != nil {
 		return err
 	}
 	return s.Server.Serve(l)
 }
-
-func (s *Server) register() error {
-	etcd, err := etcdv3.New(etcdv3.Config{
-		Endpoints: s.EtcdAddrs,
-	})
+func (s *Server) register(ctx context.Context, port string) error {
+	cli := s.EtcdClient
+	serviceName := "service/" + s.Name
+	em, err := endpoints.NewManager(cli,
+		serviceName)
 	if err != nil {
 		return err
 	}
-	s.client = etcd
-	em, err := endpoints.NewManager(etcd, "service/"+s.Name)
+	s.etcdManager = em
+	ip := netx.GetOutboundIP()
+	s.etcdKey = serviceName + "/" + ip
+	addr := ip + ":" + port
+	leaseResp, err := cli.Grant(ctx, s.EtcdTTL)
 	if err != nil {
 		return err
 	}
-	s.em = em
-	addr := netx.GetOutboundIP() + ":" + strconv.Itoa(s.Port)
-	key := "service/" + s.Name + "/" + addr
-	s.key = key
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	leaseResp, err := etcd.Grant(ctx, 30)
-	if err != nil {
-		return err
-	}
-	err = em.AddEndpoint(ctx, key, endpoints.Endpoint{
-		Addr: addr,
-	}, etcdv3.WithLease(leaseResp.ID))
-	if err != nil {
-		return err
-	}
-	kaCtx, kaCancel := context.WithCancel(context.Background())
-	ch, err := s.client.KeepAlive(kaCtx, leaseResp.ID)
-	s.kaCancel = kaCancel
+	// 开启续约
+	ch, err := cli.KeepAlive(ctx, leaseResp.ID)
 	if err != nil {
 		return err
 	}
 	go func() {
-		for kaResp := range ch {
-			// 正常就是打印一下 DEBUG 日志啥的
-			s.L.Debug(kaResp.String())
+		// 可以预期，当我们的 cancel 被调用的时候，就会退出这个循环
+		for chResp := range ch {
+			s.L.Debug("续约：", logger.String("resp", chResp.String()))
 		}
 	}()
-	return nil
+	// metadata 我们这里没啥要提供的
+	return em.AddEndpoint(ctx, s.etcdKey,
+		endpoints.Endpoint{Addr: addr}, clientv3.WithLease(leaseResp.ID))
 }
 
 func (s *Server) Close() error {
-	if s.kaCancel != nil {
-		s.kaCancel()
-	}
-	if s.em != nil {
+	s.cancel()
+	if s.etcdManager != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		err := s.em.DeleteEndpoint(ctx, s.key)
+		err := s.etcdManager.DeleteEndpoint(ctx, s.etcdKey)
 		if err != nil {
 			return err
 		}
 	}
-	if s.client != nil {
-		err := s.client.Close()
-		if err != nil {
-			return err
-		}
+	err := s.EtcdClient.Close()
+	if err != nil {
+		return err
 	}
 	s.Server.GracefulStop()
 	return nil
