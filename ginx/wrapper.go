@@ -39,8 +39,8 @@ func WrapBody[Req any](fn func(ctx *gin.Context, req Req) (Result, error)) gin.H
 	}
 }
 
-// WarpBodyAndToken 包装一个函数，用于处理请求体和token
-func WarpBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, uc C) (Result, error), claims string) gin.HandlerFunc {
+// WrapBodyAndToken 包装一个函数，用于处理请求体和token
+func WrapBodyAndToken[Req any, C jwt.Claims](fn func(ctx *gin.Context, req Req, uc C) (Result, error), claims string) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		val, ok := ctx.Get(claims)
 		if !ok {
