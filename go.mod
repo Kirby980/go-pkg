@@ -5,11 +5,13 @@ go 1.23.0
 toolchain go1.23.1
 
 require (
+	github.com/BurntSushi/toml v1.5.0
 	github.com/IBM/sarama v1.45.2
 	github.com/gin-gonic/gin v1.9.1
 	github.com/go-kratos/aegis v0.2.0
 	github.com/go-kratos/kratos/v2 v2.8.4
 	github.com/golang-jwt/jwt/v5 v5.2.2
+	github.com/google/uuid v1.4.0
 	github.com/prometheus/client_golang v1.17.0
 	github.com/prometheus/common v0.44.0
 	github.com/redis/go-redis/v9 v9.11.0
@@ -24,6 +26,14 @@ require (
 	google.golang.org/grpc v1.61.1
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.30.0
+)
+
+require (
+	github.com/montanaflynn/stats v0.7.1 // indirect
+	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
+	github.com/xdg-go/scram v1.1.2 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 )
 
 require (
