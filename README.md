@@ -14,6 +14,10 @@
 - **migrator**: 数据库迁移工具、支持同源数据库不停机迁移。有增量同步、全量同步；支持切换源表目标表切换、双写和校验、自定义比较方法等
 - **cronx**: 定时任务扩展
 - **netx**: 网络工具，如IP地址获取等
+- **ai**: AI服务封装，支持聊天对话、文章摘要生成、文本翻译、情感分析等功能
+- **httpx**: HTTP请求工具，提供链式调用的HTTP客户端，支持JSON Body、Header设置、查询参数等
+- **openim**: OpenIM客户端封装，集成MongoDB支持，用于即时通讯(IM)服务
+- **wego**: 应用框架封装，整合GRPC、Gin Web服务器、Kafka消费者和定时任务，便于Wire依赖注入
 
 ## 安装
 
@@ -59,6 +63,77 @@ repo := gormx.NewRepository(db)
 result, err := repo.QueryWithCache(ctx, "cache_key", func() (interface{}, error) {
     return userService.GetUser(id)
 })
+```
+
+### AI服务
+
+```go
+import "github.com/Kirby980/go-pkg/ai"
+
+// 创建AI服务
+aiService, err := ai.NewService()
+
+// 基础聊天
+response, err := aiService.ChatCompletion(ctx, "你好，请介绍一下Go语言")
+
+// 生成文章摘要
+summary, err := aiService.GenerateArticleSummary(ctx, articleContent)
+
+// 文本翻译
+translated, err := aiService.TranslateText(ctx, "Hello World", "中文")
+
+// 情感分析
+sentiment, err := aiService.AnalyzeSentiment(ctx, "这个产品非常好用！")
+```
+
+### HTTP请求
+
+```go
+import "github.com/Kirby980/go-pkg/httpx"
+
+// 链式调用HTTP请求
+resp := httpx.NewRequest(ctx, http.MethodPost, "https://api.example.com/users").
+    AddHeader("Authorization", "Bearer token").
+    AddParam("page", "1").
+    AddParam("size", "10").
+    JSONBody(map[string]interface{}{
+        "name": "test",
+        "age": 20,
+    }).
+    Do()
+
+// 解析响应
+var result map[string]interface{}
+err := resp.JSONScan(&result)
+```
+
+### OpenIM客户端
+
+```go
+import "github.com/Kirby980/go-pkg/openim"
+
+// 创建OpenIM客户端（集成MongoDB）
+client := openim.NewOpenIMClient("http://127.0.0.1:10002", "your-secret")
+
+// 使用客户端进行IM操作
+// 注: 需要配置MongoDB连接 mongodb://root:example@127.0.0.1:27017/openim_v3
+```
+
+### 应用框架整合（Wego）
+
+```go
+import "github.com/Kirby980/go-pkg/wego"
+
+// Wire依赖注入时使用
+type App = wego.App
+
+// 创建应用实例，整合多个服务
+app := &wego.App{
+    GRPCServer: grpcServer,    // gRPC服务器
+    WebServer:  ginServer,     // Gin Web服务器
+    Consumers:  []saramax.Consumer{consumer1, consumer2}, // Kafka消费者
+    Cron:       cronScheduler, // 定时任务
+}
 ```
 
 ## 贡献

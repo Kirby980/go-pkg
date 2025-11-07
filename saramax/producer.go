@@ -9,8 +9,8 @@ import (
 
 //go:generate mockgen -source=./producer.go -package=eventmock -destination=./mocks/article_producer.mock.go Producer
 type Producer interface {
-	ProducerReadEvent(ctx context.Context, evt ReadEvent, topic string) error
-	BatchProducerReadEvent(ctx context.Context, evt ReadEvents, topic string) error
+	Producer(ctx context.Context, evt any, topic string) error
+	BatchProducer(ctx context.Context, evt any, topic string) error
 }
 
 type KafkaProducer struct {
@@ -19,8 +19,7 @@ type KafkaProducer struct {
 	aproducer sarama.AsyncProducer
 }
 
-// BatchProducerReadEvent implements Producer.
-func (k *KafkaProducer) BatchProducerReadEvent(ctx context.Context, evt ReadEvents, topic string) error {
+func (k *KafkaProducer) BatchProducer(ctx context.Context, evt any, topic string) error {
 	k.l.Debug("批量发送消息", logger.Field{Key: "evt", Value: evt})
 	_, _, err := k.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: topic,
@@ -29,8 +28,7 @@ func (k *KafkaProducer) BatchProducerReadEvent(ctx context.Context, evt ReadEven
 	return err
 }
 
-// ProducerReadEvent implements Producer.
-func (k *KafkaProducer) ProducerReadEvent(ctx context.Context, evt ReadEvent, topic string) error {
+func (k *KafkaProducer) Producer(ctx context.Context, evt any, topic string) error {
 	_, _, err := k.producer.SendMessage(&sarama.ProducerMessage{
 		Topic: topic,
 		Value: NewJsonEncoder(k.l, evt),

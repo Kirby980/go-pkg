@@ -79,6 +79,7 @@ require (
 	github.com/ugorji/go/codec v1.2.11 // indirect
 	go.etcd.io/etcd/api/v3 v3.5.9 // indirect
 	go.etcd.io/etcd/client/pkg/v3 v3.5.9 // indirect
+	go.mongodb.org/mongo-driver v1.17.6
 	go.opentelemetry.io/otel/metric v1.24.0 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
